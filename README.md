@@ -119,9 +119,6 @@ backend/tests/           pytest, using fictional fixture CSVs with the real colu
 
 Run the tests: `cd backend && .venv/bin/python -m pytest -q` (Windows: `.venv\Scripts\python -m pytest -q`).
 
-## Next steps (not built yet)
+## Roadmap
 
-- Microsoft 365 sign-in, with named users in the update and decision history instead of free text.
-- Hosting it centrally (e.g. Azure App Service) so the team uses one shared copy, then the WSG portal with FLOW and Initiative Portfolio buttons.
-- Intake triage: new ideas from the intake form land in *Idea / concept* with a triage outcome (BAU, watchlist, quick scope, active initiative, park).
-- Business-case fields (cost, benefit, ROI) on the scoring page are imported and shown but not yet editable in the app.
+What's done, on hold and next is in [ROADMAP.md](ROADMAP.md).
