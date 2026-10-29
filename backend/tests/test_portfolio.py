@@ -211,3 +211,27 @@ def test_stage_move_keeps_the_current_next_action(loaded):
     loaded.post("/api/initiatives/INIT-0001/stage", json={"stage_to": "Discovery/Validation", "rationale": "Ready"})
     i = loaded.get("/api/initiatives/INIT-0001").json()
     assert i["next_action"] == "Current action" and i["next_action_owner"] == "Person A"
+
+
+# ---------------------------------------------------------------- v0.3: movement
+def test_movement_compares_two_points_in_time(loaded):
+    # Fixture: INIT-0001 was Amber on 15 Jun and Amber/Red on 13 Aug (Blocked).
+    loaded.patch("/api/initiatives/INIT-0001", json={"health": "Amber/Red"})
+    d = loaded.get("/api/movement?since=2026-06-15").json()
+    r = {x["id"]: x for x in d["rows"]}["INIT-0001"]
+    assert (r["health_then"], r["health_now"], r["health_dir"]) == ("Amber", "Amber/Red", "worse")
+    assert r["movement"] == "Blocked" and r["updates"] == 1
+    s = {x["key"]: x["n"] for x in d["summary"]}
+    assert s["worse"] == 1 and s["stuck"] == 1
+    loaded.post("/api/initiatives/INIT-0001/stage", json={"stage_to": "Discovery/Validation", "rationale": "Ready"})
+    loaded.post("/api/initiatives/INIT-0001/updates", json={"summary": "Unblocked", "health": "Green", "movement": "Progressed"})
+    r = {x["id"]: x for x in loaded.get("/api/movement?since=2026-09-01").json()["rows"]}["INIT-0001"]
+    assert r["stage_delta"] == 1 and r["stage_then"] == "Framing" and r["health_dir"] == "better" and r["movement"] == "Progressed"
+    hist = loaded.get("/api/initiatives/INIT-0001/history").json()
+    assert [h["health"] for h in hist][-1] == "Green" and len(hist) == 4
+
+
+def test_register_and_update_health_mismatch_is_flagged(loaded):
+    loaded.patch("/api/initiatives/INIT-0001", json={"health": "Green"})
+    flags = loaded.get("/api/initiatives/INIT-0001").json()["flags"]
+    assert any(f["kind"] == "health_mismatch" for f in flags)

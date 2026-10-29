@@ -165,6 +165,8 @@ def flags(i, score, latest_update, cuts: dict, today: date) -> list[dict]:
             out.append({"kind": "quadrant", "level": "grey", "text": f"Recorded as {score.recorded_quadrant}; scores put it in {calc}"})
         if score.review_required:
             out.append({"kind": "score_review", "level": "grey", "text": "Score marked for review"})
+    if latest_update is not None and latest_update.health and i.health and norm_health(latest_update.health) != i.health:
+        out.append({"kind": "health_mismatch", "level": "amber", "text": f"Register health is {i.health} but the latest update says {latest_update.health}"})
     if not closed and i.next_review_date and i.next_review_date < today:
         days = (today - i.next_review_date).days
         out.append({"kind": "overdue", "level": "red", "text": f"Review overdue by {days} day{'s' if days != 1 else ''}"})
@@ -173,3 +175,16 @@ def flags(i, score, latest_update, cuts: dict, today: date) -> list[dict]:
     if not closed and (latest_update is None or (latest_update.update_date and latest_update.update_date < today - timedelta(days=60))):
         out.append({"kind": "stale", "level": "amber", "text": "No update in the last 60 days" if latest_update else "No updates logged"})
     return out
+
+
+# Health ranked best → worst, for "improved / worsened". Grey means not assessed, so it has no direction.
+HEALTH_RANK = {"Green": 0, "Green/Amber": 1, "Amber": 2, "Amber/Red": 3, "Red": 4}
+
+
+def health_direction(then: str | None, now: str | None) -> str:
+    if then == now or now is None:
+        return "same"
+    if then not in HEALTH_RANK or now not in HEALTH_RANK:
+        return "assessed" if then in (None, "Grey") and now in HEALTH_RANK else "same"
+    return "better" if HEALTH_RANK[now] < HEALTH_RANK[then] else "worse"
+

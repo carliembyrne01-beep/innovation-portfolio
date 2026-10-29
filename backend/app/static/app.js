@@ -93,7 +93,7 @@ const nul = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v ==
 // ------------------------------------------------------------------ navigation
 const NAV = [
   ["View the portfolio", [["#/", "Overview"], ["#/register", "Register"], ["#/pipeline", "Stage pipeline"], ["#/matrix", "Value × complexity"], ["#/alignment", "Strategy alignment"], ["#/resources", "Resource load"]]],
-  ["Run reviews", [["#/workshop", "Workshop mode"], ["#/actions", "Open actions"], ["#/updates", "Updates log"], ["#/decisions", "Decisions log"], ["#/pack", "Leadership pack"]]],
+  ["Run reviews", [["#/movement", "Movement"], ["#/workshop", "Workshop mode"], ["#/actions", "Open actions"], ["#/updates", "Updates log"], ["#/decisions", "Decisions log"], ["#/pack", "Leadership pack"]]],
   ["Data", [["#/import", "Import & export"], ["#/framework", "How the framework works"]]],
 ];
 
@@ -254,16 +254,23 @@ PAGES.register = async (r) => {
 
 // ---- pipeline
 PAGES.pipeline = async (r) => {
-  const rows = (await refreshCache()).filter((c) => !["Stopped", "Closed / BAU"].includes(c.status)).filter(byType(r.q));
+  const [all, mv] = await Promise.all([refreshCache(), GET("/api/movement")]);
+  const rows = all.filter((c) => !["Stopped", "Closed / BAU"].includes(c.status)).filter(byType(r.q));
+  const MV = Object.fromEntries(mv.rows.map((x) => [x.id, x]));
+  const badge = (c) => { const x = MV[c.id]; if (!x) return ""; const bits = [];
+    if (x.stage_delta) bits.push(`<span class="mv ${x.stage_delta > 0 ? "up" : "down"}">${x.stage_delta > 0 ? "→" : "←"} from ${esc(stageLabel(x.stage_then))}</span>`);
+    if (x.health_dir === "better" || x.health_dir === "worse") bits.push(`${HEALTH_ARROW[x.health_dir]} <span class="hint">was ${esc(x.health_then)}</span>`);
+    if (x.new) bits.push(`<span class="chip info">New</span>`);
+    return bits.length ? `<div class="s">${bits.join(" · ")}</div>` : ""; };
   const cols = META.stages.map((s) => ({ ...s, items: rows.filter((c) => c.stage === s.key) }));
   const other = rows.filter((c) => c.stage_index < 0);
   if (other.length) cols.push({ key: "other", label: "Other / not set", items: other });
   const sorted = (items) => sortRows(items, "priority", true);
-  return `<section>${sec("Stage pipeline", "Live initiatives by stage. Coloured edge = health. Drag a card to another stage to move it (you'll be asked why), or click to open it.")}
+  return `<section>${sec("Stage pipeline", `Live initiatives by stage. Coloured edge = health; arrows show movement since the review on ${fmtD(mv.since)}. Drag a card to another stage to move it (you'll be asked why), or click to open it.`)}
     <div class="filters" style="margin-bottom:10px">${typeFilter(r.q)}<span class="count">${rows.length} live</span></div>
     <div class="board ${other.length ? "extra" : ""}">${cols.map((col, n) => `<div class="col" data-drop="${esc(col.key)}"><div class="col-h"><span>${col.key === "other" ? "" : `<span class="mono muted">${n + 1}</span> `}${esc(col.label)}</span><span class="n">${col.items.length}</span></div>
       ${sorted(col.items).map((c) => `<div class="icard ${c.health_class}" data-href="#/i/${c.id}" draggable="true" data-drag="${c.id}"><div class="t">${esc(c.name)}</div>
-        <div class="r">${prio(c.priority)}${c.quadrant ? `<span class="hint">· ${esc(c.quadrant)}</span>` : ""}</div><div class="s">${esc(typeOf(c))}</div>
+        <div class="r">${prio(c.priority)}${c.quadrant ? `<span class="hint">· ${esc(c.quadrant)}</span>` : ""}</div><div class="s">${esc(typeOf(c))}</div>${badge(c)}
         <div class="s">${esc(c.owner || "Owner not set")}</div>
         ${c.movement ? `<div class="s">${esc(c.movement)} · ${fmtD(c.latest_update_date)}</div>` : ""}</div>`).join("") || `<div class="empty">—</div>`}</div>`).join("")}</div></section>`;
 };
@@ -336,8 +343,14 @@ PAGES.alignment = async (r) => {
 };
 
 // ---- initiative detail
+function trendStrip(hist) {
+  if (!hist.length) return "";
+  return `<div class="trend">${hist.map((h, n) => { const prev = hist[n - 1]; const dir = prev ? (({ Green: 0, "Green/Amber": 1, Amber: 2, "Amber/Red": 3, Red: 4 })[h.health] ?? 9) - (({ Green: 0, "Green/Amber": 1, Amber: 2, "Amber/Red": 3, Red: 4 })[prev.health] ?? 9) : 0;
+    return `<div class="tp" title="${esc(fmtD(h.date) + " · " + (h.health || "no health") + " · " + (h.movement || "") + " · " + (h.type || ""))}"><span class="dot ${h.health_class}"></span><span class="td">${fmtD(h.date).replace(/ \d{4}$/, "")}</span><span class="tm ${MOVE_CLS[h.movement] || ""}">${esc(h.type === "Stage move" ? "Stage move" : h.movement || "")}</span></div>`; }).join(`<span class="tl"></span>`)}</div>`;
+}
+
 PAGES.i = async (r) => {
-  const c = await GET(`/api/initiatives/${encodeURIComponent(r.parts[1])}`);
+  const [c, hist] = await Promise.all([GET(`/api/initiatives/${encodeURIComponent(r.parts[1])}`), GET(`/api/initiatives/${encodeURIComponent(r.parts[1])}/history`)]);
   const tab = r.q.tab || "overview";
   const selStage = r.q.stage != null ? +r.q.stage : c.stage_index;
   const f = c.fields;
@@ -347,6 +360,7 @@ PAGES.i = async (r) => {
   if (tab === "overview") {
     body = `<div class="grid g-2-1"><div class="grid" style="align-content:start">
       <div class="card"><div class="card-title">What it is</div><div style="font-size:13px">${esc(c.short_description || "No description yet.")}</div></div>
+      ${hist.length ? `<div class="card"><div class="card-title"><span class="grow">Health and movement over time</span><a class="small" href="#/i/${c.id}?tab=updates">updates →</a></div>${trendStrip(hist)}</div>` : ""}
       <div class="card"><div class="card-title"><span class="grow">Where it's at now</span><button class="btn sm accent" data-act="log-update" data-id="${c.id}">Log update</button></div>
         ${c.updates[0] ? `<div class="hint">${fmtD(c.updates[0].update_date)} · ${esc(c.updates[0].update_type || "")} · ${esc(c.movement || "")}</div><div style="font-size:13px;margin:4px 0 10px">${esc(c.latest_update_summary)}</div>` : `<div class="hint">No updates logged yet.</div>`}
         <dl class="kv"><dt>Decision needed</dt><dd class="pre">${esc(c.decision_needed || "—")}</dd><dt>Next action</dt><dd class="pre">${esc(c.next_action || "—")}</dd>
@@ -415,6 +429,7 @@ function updateEntry(u) {
 }
 
 // ---- workshop mode
+let WS_MV = {}, WS_SINCE = null;
 PAGES.workshop = async (r) => {
   const all = await refreshCache();
   const set = r.q.set || "live";
@@ -429,7 +444,8 @@ PAGES.workshop = async (r) => {
   if (!list.length) return `<section>${sec("Workshop mode", "")}<div class="card empty">No initiatives in this set.</div></section>`;
   const id = r.q.start && list.some((c) => c.id === r.q.start) ? r.q.start : list[0].id;
   const pos = list.findIndex((c) => c.id === id);
-  const c = await GET(`/api/initiatives/${id}`);
+  const [c, mv] = await Promise.all([GET(`/api/initiatives/${id}`), GET("/api/movement")]);
+  WS_MV = Object.fromEntries(mv.rows.map((x) => [x.id, x])); WS_SINCE = mv.since;
   const prev = list[pos - 1], next = list[pos + 1];
   const s = c.score;
   return `<section class="ws-bar no-print">
@@ -446,6 +462,7 @@ PAGES.workshop = async (r) => {
           <div class="lead">${esc(c.short_description || "")}</div>
           <div class="hint" style="margin-top:4px">Owner <b>${esc(c.owner || "not set")}</b> · Sponsor <b>${esc(c.sponsor || "not set")}</b></div></div>
         ${stageStrip(c, -1)}
+        ${(() => { const x = WS_MV[c.id]; return x && (x.health_dir !== "same" || x.stage_delta || x.movement) ? `<div class="small">Since the review on ${fmtD(WS_SINCE)}: ${x.stage_delta ? stageMove(x) + " · " : ""}${x.health_then ? healthChip(x.health_then) + " → " : ""}${healthChip(x.health_now)} ${HEALTH_ARROW[x.health_dir] || ""} · ${moveChip(x.movement)}</div>` : ""; })()}
         <div><div class="card-title">Decision needed</div><div class="big-q pre">${esc(c.decision_needed || "None recorded")}</div></div>
         <div class="card"><div class="card-title"><span class="grow">Latest update · ${fmtD(c.latest_update_date)} · ${esc(c.movement || "")}</span><a class="small" href="#/i/${c.id}?tab=updates">history →</a></div>
           <div style="font-size:13.5px">${esc(c.latest_update_summary || "No updates yet.")}</div>
@@ -522,7 +539,7 @@ PAGES.decisions = async () => {
 
 // ---- leadership pack (printable)
 PAGES.pack = async (r) => {
-  const [cards, ups, ov, decs] = await Promise.all([refreshCache(), GET("/api/updates"), GET("/api/overview"), GET("/api/decisions")]);
+  const [cards, ups, ov, decs, mv] = await Promise.all([refreshCache(), GET("/api/updates"), GET("/api/overview"), GET("/api/decisions"), GET("/api/movement")]);
   const since = r.q.since || addDays(todayISO(), -31);
   const recent = decs.filter((x) => x.decision_date >= since);
   const mdOnly = r.q.all !== "1";
@@ -535,11 +552,51 @@ PAGES.pack = async (r) => {
   <section class="pack-head"><img src="/static/wsg-logo.svg" alt="WSG"><div><h1>Initiative Portfolio — leadership update</h1><div class="small" style="color:#D5D8DB">${fmtD(todayISO())} · ${rows.length} initiatives</div></div></section>
   <section class="card"><div class="card-title"><span class="grow">Decisions and stage moves since ${fmtD(since)}</span><span class="no-print small">from <input type="date" data-filter="since" value="${since}"></span></div>
     ${recent.length ? `<table class="ops"><thead><tr><th>Date</th><th>Initiative</th><th>Decision</th><th>Stage</th><th>Rationale / conditions</th></tr></thead><tbody>${recent.map((x) => `<tr><td class="mono small nowrap">${fmtD(x.decision_date)}</td><td class="small"><b>${esc(x.initiative_name)}</b></td><td>${dchip(x.decision)}</td><td class="small nowrap">${x.stage_to !== x.stage_from ? `${esc(stageLabel(x.stage_from))} → <b>${esc(stageLabel(x.stage_to))}</b>` : esc(stageLabel(x.stage_to))}</td><td class="small">${esc(x.rationale || "")}${x.conditions ? `<div class="hint">${esc(x.conditions)}</div>` : ""}</td></tr>`).join("")}</tbody></table>` : `<div class="hint">No decisions or stage moves recorded in this period.</div>`}</section>
+  <section class="card"><div class="card-title">Movement since the review on ${fmtD(mv.since)}</div>
+    <div class="grid g5" style="margin-bottom:10px">${mv.summary.filter((s) => s.n).map((s) => `<div><div class="mono" style="font-size:20px;font-weight:700">${s.n}</div><div class="small">${esc(s.label)}</div></div>`).join("")}</div>
+    ${mv.rows.filter((x) => x.stage_delta || ["better", "worse"].includes(x.health_dir) || ["Blocked", "Escalated"].includes(x.movement) || x.closed || x.new).sort((a, b) => mvWeight(b) - mvWeight(a)).map((x) => `<div class="list-row" style="padding:5px 0"><span class="grow small"><b>${esc(x.name)}</b></span>
+      <span class="small">${x.stage_delta ? stageMove(x) : ""}</span><span class="nowrap">${x.health_then && x.health_dir !== "same" ? `${healthChip(x.health_then)} → ` : ""}${healthChip(x.health_now)} ${HEALTH_ARROW[x.health_dir] || ""}</span><span style="width:110px;text-align:right">${moveChip(x.movement)}</span></div>`).join("") || `<div class="hint">No stage, health or blocking changes in this period.</div>`}</section>
   <section class="grid g4">${ov.kpis.slice(0, 4).map((k) => `<div class="card tight kpi ${k.rag}"><div class="l">${esc(k.label)}</div><div class="v">${esc(k.value)}</div><div class="note">${esc(k.note)}</div></div>`).join("")}</section>
   <section class="card"><div class="card-title">By stage</div><div class="grid g5">${ov.by_stage.filter((s) => s.key !== "other").map((s) => `<div><div class="small"><b>${esc(s.label)}</b> <span class="mono muted">${s.items.length}</span></div><div class="hint">${s.items.map((c) => esc(c.name)).join(" · ") || "—"}</div></div>`).join("")}</div></section>
   ${rows.map((c) => { const u = latest[c.id]; return `<section class="pack-page"><div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><h2>${esc(c.name)}</h2>${healthChip(c.health)} ${prio(c.priority)} <span class="hint">${esc(stageLabel(c.stage))} · ${esc(c.owner || "")}</span></div>
       ${u ? `<div class="hint">${fmtD(u.update_date)} · ${esc(u.movement || "")}</div><div style="font-size:12.5px;margin:6px 0">${esc(u.summary)}</div>
       <dl class="kv"><dt>Decision needed</dt><dd>${esc(u.decision_needed || "—")}</dd><dt>Next action</dt><dd>${esc(u.next_action || "—")} ${u.next_action_owner ? `<span class="muted">— ${esc(u.next_action_owner)}</span>` : ""}</dd></dl>` : `<div class="hint">No update.</div>`}</section>`; }).join("")}`;
+};
+
+// ---- movement
+const HEALTH_ARROW = { better: `<span class="mv up" title="Health improved">▲</span>`, worse: `<span class="mv down" title="Health worsened">▼</span>`, assessed: `<span class="mv" title="Health assessed for the first time">●</span>`, new: `<span class="chip info">New</span>`, same: "" };
+const MOVE_CLS = { Progressed: "green", "Changed Scope": "amber", "No change": "grey", "Needs capture": "grey", Blocked: "red", Escalated: "red" };
+const moveChip = (m) => m ? `<span class="chip ${MOVE_CLS[m] || "grey"}">${esc(m)}</span>` : `<span class="hint">no update</span>`;
+const stageMove = (r) => r.stage_delta ? `<span class="nowrap">${esc(stageLabel(r.stage_then))} <span class="mv ${r.stage_delta > 0 ? "up" : "down"}">${r.stage_delta > 0 ? "→" : "←"}</span> <b>${esc(stageLabel(r.stage_now))}</b></span>` : `<span class="muted">${esc(stageLabel(r.stage_now))}</span>`;
+const MV_FILTERS = {
+  forward: (r) => r.stage_delta > 0, back: (r) => r.stage_delta < 0, better: (r) => r.health_dir === "better", worse: (r) => r.health_dir === "worse",
+  progressed: (r) => r.movement === "Progressed", stuck: (r) => ["Blocked", "Escalated"].includes(r.movement),
+  flat: (r) => ["No change", "Needs capture", "Changed Scope"].includes(r.movement), quiet: (r) => r.updates === 0 && !r.new, new: (r) => r.new, closed: (r) => !!r.closed,
+};
+// Most newsworthy first: stage moves, health changes, blocked, then the rest.
+const mvWeight = (r) => (r.closed ? 60 : 0) + (r.stage_delta ? 50 : 0) + (r.health_dir === "worse" ? 45 : r.health_dir === "better" ? 40 : 0) + (["Blocked", "Escalated"].includes(r.movement) ? 35 : 0) + (r.new ? 30 : 0) + (r.updates === 0 ? -10 : 0);
+
+PAGES.movement = async (r) => {
+  const d = await GET(`/api/movement${r.q.since ? `?since=${r.q.since}` : ""}`);
+  const f = MV_FILTERS[r.q.show];
+  const rows = d.rows.filter((x) => (!f || f(x)) && (!r.q.type || x.type === r.q.type)).sort((a, b) => mvWeight(b) - mvWeight(a) || (PRIO_ORDER[a.priority] ?? 9) - (PRIO_ORDER[b.priority] ?? 9));
+  const pts = d.review_points.filter((p) => p < d.today);
+  return `<section>${sec("Movement", `What changed between ${fmtD(d.since)} and today (${fmtD(d.today)}): stage moves, health up or down, and the progress owners reported.`)}
+    <div class="filters"><span class="small">Compare with</span>
+      <select data-filter="since">${pts.map((p, n) => `<option value="${p}" ${p === d.since ? "selected" : ""}>review on ${fmtD(p)}${n === 0 ? " (latest)" : n === 1 ? " (previous)" : ""}</option>`).join("")}${pts.includes(d.since) ? "" : `<option value="${d.since}" selected>${fmtD(d.since)}</option>`}</select>
+      <span class="small">or from</span><input type="date" data-filter="since" value="${d.since}" style="border:1px solid var(--line);border-radius:4px;padding:4px 6px">
+      ${typeFilter(r.q)}${r.q.show ? `<span class="chip info">${esc(d.summary.find((s) => s.key === r.q.show)?.label || "")} <a href="#" data-act="clear-show" style="margin-left:4px">×</a></span>` : ""}
+      <span class="count">${rows.length} initiatives</span></div></section>
+  <section class="grid g5">${d.summary.map((s) => `<div class="card tight kpi ${s.n ? s.rag : "grey"} ${r.q.show === s.key ? "sel" : ""}" data-act="show" data-key="${s.key}" data-link="1"><div class="l">${esc(s.label)}</div><div class="v">${s.n}</div></div>`).join("")}</section>
+  <section><div class="card" style="padding:0"><div class="tbl-wrap"><table class="ops"><thead><tr><th>Initiative</th><th>Stage</th><th>Health then → now</th><th>Progress reported</th><th class="num">Updates</th><th>Latest</th></tr></thead><tbody>
+    ${rows.map((x) => `<tr class="click" data-href="#/i/${x.id}?tab=updates"><td><b>${esc(x.name)}</b><div class="hint">${prio(x.priority)} · ${esc(x.type || "type not set")}</div>${x.closed ? `<div>${dchip(x.closed)}</div>` : ""}</td>
+      <td class="small">${stageMove(x)}</td>
+      <td class="nowrap">${x.health_then ? healthChip(x.health_then) : `<span class="hint">—</span>`} <span class="muted">→</span> ${healthChip(x.health_now)} ${HEALTH_ARROW[x.health_dir] || ""}</td>
+      <td>${moveChip(x.movement)}${x.movements.length > 1 ? `<div class="hint">${x.movements.map(esc).join(" → ")}</div>` : ""}</td>
+      <td class="num">${x.updates || `<span class="hint">0</span>`}</td>
+      <td class="small"><div class="desc" style="max-width:420px">${esc(x.latest_summary || (x.latest_date ? `Last update ${fmtD(x.latest_date)}` : "No updates"))}</div></td></tr>`).join("") || `<tr><td colspan="6" class="empty">Nothing in this group.</td></tr>`}
+  </tbody></table></div></div>
+  <div class="hint" style="margin-top:6px">Health "then" is from the last update on or before ${fmtD(d.since)}; "now" is from the latest update (or the register if there are none). Stage history is recorded from v0.2 onwards (MS Lists didn't keep it), so earlier stage changes won't show here.</div></section>`;
 };
 
 // ---- resource load
@@ -716,6 +773,8 @@ document.addEventListener("click", async (e) => {
     if (act === "score") return openForm("score", a.dataset.id);
     if (act === "decide") return openForm("decide", a.dataset.id);
     if (act === "move-stage") return openForm("move", a.dataset.id, { to: a.dataset.to });
+    if (act === "show") { setQuery({ show: parseRoute().q.show === a.dataset.key ? "" : a.dataset.key }); return render(); }
+    if (act === "clear-show") { e.preventDefault(); setQuery({ show: "" }); return render(); }
     if (act === "save-aliases") { try { toast((await api("PUT", "/api/settings/aliases", { text: $("#aliases").value })).message); render(); } catch (err) { toast(err.message, true); } return; }
     if (act === "add-align") return openForm("align", a.dataset.id, { type: a.dataset.type });
     if (act === "rm-align") { try { toast((await api("DELETE", `/api/alignments/${encodeURIComponent(a.dataset.aid)}`)).message); render(); } catch (err) { toast(err.message, true); } return; }

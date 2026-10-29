@@ -24,7 +24,7 @@ from . import logic as L
 from . import models as m
 from .db import DB_PATH, Base, SessionLocal, engine, get_db
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 STATIC = Path(__file__).resolve().parent / "static"
 
 
@@ -151,7 +151,7 @@ def card(i: m.Initiative, s, u, prio, cuts, dec=None) -> dict:
     # The register's "Next Action" cell carries dated history; the latest update holds the current one.
     use_u = u is not None and (u.action_status or "Open") != "Superseded"
     return {
-        "id": i.id, "name": i.name, "short_description": i.short_description, "owner": i.primary_owner, "sponsor": i.sponsor,
+        "id": i.id, "name": i.name, "created": iso(i.created_at), "short_description": i.short_description, "owner": i.primary_owner, "sponsor": i.sponsor,
         "bucket": i.portfolio_bucket, "effort": i.effort, "business_areas": i.business_areas or [], "routes": i.primary_route or [],
         "value_types": i.value_types or [], "stage": i.stage, "stage_index": L.stage_index(i.stage),
         "status": i.portfolio_status, "priority": i.priority, "health": i.health, "health_class": L.health_class(i.health),
@@ -616,6 +616,79 @@ def alignment_map(db: Session = Depends(get_db)):
     return {"initiatives": list(cards.values()),
             "areas": {t: [{"area": k, "links": v, "primary": sum(1 for r in v.values() if r == "Primary"), "total": len(v)}
                           for k, v in sorted(d.items(), key=lambda kv: -len(kv[1]))] for t, d in out.items()}}
+
+
+# ---------------------------------------------------------------- movement
+def review_points(db, min_updates: int = 5) -> list[str]:
+    """Dates when a review happened: days with at least `min_updates` updates logged. Newest first."""
+    rows = db.execute(select(m.Update.update_date, func.count()).group_by(m.Update.update_date)).all()
+    return sorted((d.isoformat() for d, n in rows if d and n >= min_updates), reverse=True)
+
+
+@app.get("/api/movement")
+def movement(since: date | None = None, db: Session = Depends(get_db)):
+    """What changed since a date: stage moves, health up/down, progress reported, new, closed and quiet initiatives."""
+    points = review_points(db)
+    t = today()
+    if since is None:
+        since = date.fromisoformat(points[1] if len(points) > 1 else points[0]) if points else t.replace(day=1)
+    cards = {c["id"]: c for c in all_cards(db)}
+    ups = db.scalars(select(m.Update).order_by(m.Update.update_date, m.Update.created_at, m.Update.id)).all()
+    decs = db.scalars(select(m.Decision).order_by(m.Decision.decision_date, m.Decision.id)).all()
+    by_i_u, by_i_d = {}, {}
+    for u in ups:
+        by_i_u.setdefault(u.initiative_id, []).append(u)
+    for x in decs:
+        by_i_d.setdefault(x.initiative_id, []).append(x)
+    rows = []
+    for iid, c in cards.items():
+        us = by_i_u.get(iid, [])
+        before = [u for u in us if u.update_date and u.update_date <= since]
+        during = [u for u in us if u.update_date and u.update_date > since]
+        ds = [x for x in by_i_d.get(iid, []) if x.decision_date > since]
+        health_then = next((u.health for u in reversed(before) if u.health), None)
+        # "Now" = the latest dated update; the register cell can lag behind it (MS Lists wasn't kept in step).
+        health_now = next((u.health for u in reversed(us) if u.health), None) or c["health"]
+        stage_then = ds[0].stage_from if ds else c["stage"]
+        first_seen = us[0].update_date if us else None
+        is_new = (first_seen is not None and first_seen > since) or (first_seen is None and c.get("created") and c["created"] > since.isoformat())
+        closed = next((x.decision for x in ds if x.decision in ("Close", "Stop")), None)
+        if c["status"] in ("Stopped", "Closed / BAU") and not closed:
+            continue  # finished before this period
+        si_then, si_now = L.stage_index(stage_then), c["stage_index"]
+        moves = [u.movement for u in during if u.movement and u.update_type not in ("Decision", L.STAGE_MOVE)]
+        rows.append({
+            "id": iid, "name": c["name"], "type": c["bucket"], "priority": c["priority"], "owner": c["owner"],
+            "stage_then": stage_then, "stage_now": c["stage"], "stage_delta": (si_now - si_then) if si_then >= 0 and si_now >= 0 else 0,
+            "health_then": health_then, "health_now": health_now, "health_dir": "new" if is_new else L.health_direction(health_then, health_now),
+            "movement": moves[-1] if moves else (during[-1].movement if during else None),
+            "movements": moves, "updates": len(during), "decisions": [{"decision": x.decision, "date": iso(x.decision_date)} for x in ds],
+            "latest_summary": during[-1].summary if during else None, "latest_date": iso(during[-1].update_date) if during else iso(us[-1].update_date) if us else None,
+            "new": bool(is_new), "closed": closed,
+        })
+    def count(f):
+        return sum(1 for r in rows if f(r))
+    summary = [
+        {"key": "forward", "label": "Moved forward a stage", "n": count(lambda r: r["stage_delta"] > 0), "rag": "green"},
+        {"key": "back", "label": "Moved back a stage", "n": count(lambda r: r["stage_delta"] < 0), "rag": "amber"},
+        {"key": "better", "label": "Health improved", "n": count(lambda r: r["health_dir"] == "better"), "rag": "green"},
+        {"key": "worse", "label": "Health worsened", "n": count(lambda r: r["health_dir"] == "worse"), "rag": "red"},
+        {"key": "progressed", "label": "Reported progress", "n": count(lambda r: r["movement"] == "Progressed"), "rag": "green"},
+        {"key": "stuck", "label": "Blocked or escalated", "n": count(lambda r: r["movement"] in ("Blocked", "Escalated")), "rag": "red"},
+        {"key": "flat", "label": "No change / needs capture", "n": count(lambda r: r["movement"] in ("No change", "Needs capture", "Changed Scope")), "rag": "amber"},
+        {"key": "quiet", "label": "No update at all", "n": count(lambda r: r["updates"] == 0 and not r["new"]), "rag": "grey"},
+        {"key": "new", "label": "New", "n": count(lambda r: r["new"]), "rag": "info"},
+        {"key": "closed", "label": "Closed or stopped", "n": count(lambda r: r["closed"]), "rag": "info"},
+    ]
+    return {"since": since.isoformat(), "today": t.isoformat(), "review_points": points, "summary": summary, "rows": rows}
+
+
+@app.get("/api/initiatives/{iid}/history")
+def history(iid: str, db: Session = Depends(get_db)):
+    """Health and movement at each update, oldest first, for the initiative's trend strip."""
+    get_init(db, iid)
+    ups = db.scalars(select(m.Update).where(m.Update.initiative_id == iid).order_by(m.Update.update_date, m.Update.created_at, m.Update.id)).all()
+    return [{"date": iso(u.update_date), "health": u.health, "health_class": L.health_class(u.health), "movement": u.movement, "type": u.update_type} for u in ups]
 
 
 # ---------------------------------------------------------------- settings

@@ -59,7 +59,8 @@ The check fixes or flags known problems in the Lists data:
 **Before the meeting**
 1. Ask owners for updates, then **Log update** for each (or have owners do it).
 2. Open **Overview** for flags: reviews overdue, owners to confirm, blocked or red.
-3. Open **Leadership pack** → **Print / save as PDF** to send as the pre-read. It includes only updates flagged *Include in MD update*, and never working-only notes.
+3. Open **Movement** to see what changed since the last review.
+4. Open **Leadership pack** → **Print / save as PDF** to send as the pre-read. It includes the movement summary, and only updates flagged *Include in MD update*, and never working-only notes.
 
 **In the meeting (on the big screen)**
 1. Open **Workshop mode** and pick the set:
@@ -84,6 +85,7 @@ The check fixes or flags known problems in the Lists data:
 | Stage pipeline | Board by stage; coloured edge = health. Drag a card to move it to another stage; filter by type |
 | Value × complexity | Matrix of active scores. Drag the sliders to move the quadrant lines, then save. The defaults (value ≥ 7, complexity ≥ 5) match 20 of the 21 quadrants recorded in Lists |
 | Strategy alignment | Initiatives × strategic priorities / value pockets (primary vs supporting), plus gaps |
+| Movement | What changed between a past review and today: stage moves, health improved / worsened, progress reported (progressed, blocked, escalated, no change), new, closed and initiatives with no update. Pick the review date to compare with; click a tile to filter. Also shown as arrows on the pipeline, as a health-over-time strip on each initiative, in Workshop mode and in the leadership pack |
 | Resource load | Each person's live initiatives (weighted by effort size), sponsorships and open / overdue actions, plus effort by type. Names come from the owner and action-owner fields. Use *Same person, different names?* to merge initials with names, e.g. `CB = Carlie` |
 | Initiative page | Stage strip with each gate's evidence, flags, key facts, scoring, alignment, update history, decisions, every register field |
 
