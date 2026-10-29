@@ -32,8 +32,9 @@ REGISTER = [
     ("Client Impact", "client_impact", "str"), ("Funding/Resource Ask", "funding_ask", "str"),
     ("Related Initiatives", "related_initiatives", "list"),
     ("Effort Level", "effort", "str"),  # added by this app; not in the original MS List
+    ("Part Of Initiative ID", "parent_id", "str"),  # added by this app
 ]
-OPTIONAL = {"Effort Level"}
+OPTIONAL = {"Effort Level", "Part Of Initiative ID"}
 SCORES = [
     ("Score ID", "id", "str"), ("Initiative ID", "initiative_id", "str"), ("Initiative Name", None, "skip"),
     ("Score Date", "score_date", "date"),

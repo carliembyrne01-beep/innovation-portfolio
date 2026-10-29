@@ -48,6 +48,11 @@ The check fixes or flags known problems in the Lists data:
   - Tick **Working only** for sensitive context. Working notes never appear in the leadership pack.
 - **Re-score**: click 0 / 1 / 2 for each of the 10 factors. The totals and quadrant update as you click. Old scores are kept as history.
 - **Edit details**: owner, sponsor, stage, priority, initiative type, effort / resource ask, business areas, dependencies, related initiatives.
+- **Link initiatives**: on an initiative, the *Linked initiatives* card.
+  - **+ Add parts** makes other initiatives part of this one (e.g. PUMA, UpKeep and FLOW are parts of the Integrated Platform). The card then shows each part's stage, health and last movement, the worst health across them, and any that are blocked.
+  - For a Strategic Workstream, initiatives whose register *Primary Route* names it are offered as **suggested parts** to tick.
+  - **Part of / related…** opens Edit details, where *Part of* sets the bigger piece of work and *Related initiatives* is a tick list (plus a box for related work not in the register).
+  - The register shows "part of …" under each name and has a programme filter; pipeline cards and Workshop mode show the links too. Loops are blocked (A can't be part of B if B is part of A).
 - **Move along the stages**, in either of two ways. Both ask *why* (with the current stage's evidence checklist to tick), who agreed it and the next review date, and log the move in the updates and decisions history.
   - On the **Stage pipeline**, drag a card to another stage.
   - On an initiative, click a stage in the stage strip → **Move to this stage**, or use the **Move to … →** button at the top.
@@ -91,7 +96,7 @@ The check fixes or flags known problems in the Lists data:
 
 ## Power BI
 
-**Import & export → Export** downloads each list as CSV with the **same column names as the MS Lists**, so existing Power BI reports can point at these files instead. Multi-choice values are separated by `; `. The quadrant column is the calculated one. The register export has one extra column at the end, *Effort Level*.
+**Import & export → Export** downloads each list as CSV with the **same column names as the MS Lists**, so existing Power BI reports can point at these files instead. Multi-choice values are separated by `; `. The quadrant column is the calculated one. The register export has two extra columns at the end, *Effort Level* and *Part Of Initiative ID*.
 
 ## The framework in the app
 

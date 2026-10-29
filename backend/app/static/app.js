@@ -145,7 +145,7 @@ function initiativeTable(rows, { compact = false } = {}) {
     <th class="sortable" data-sort="quadrant">Quadrant</th>${compact ? "" : `<th class="sortable" data-sort="movement">Last movement</th><th class="sortable" data-sort="next_review_date">Next review</th>`}<th>Flags</th></tr></thead><tbody>
     ${rows.map((c) => `<tr class="click" data-href="#/i/${c.id}">
       <td class="mono nowrap small">${esc(c.id)}</td>
-      <td><b>${esc(c.name)}</b><div class="hint">${esc(typeOf(c))}${c.effort ? ` · ${esc(c.effort)}` : ""}</div>${compact ? "" : `<div class="desc">${esc(c.short_description)}</div>`}</td>
+      <td><b>${esc(c.name)}</b><div class="hint">${esc(typeOf(c))}${c.effort ? ` · ${esc(c.effort)}` : ""}${c.parent_name ? ` · part of ${esc(c.parent_name)}` : ""}${c.parts ? ` · <b>${plural(c.parts, "part")}</b>` : ""}</div>${compact ? "" : `<div class="desc">${esc(c.short_description)}</div>`}</td>
       <td class="nowrap">${stageMini(c.stage_index)} <span class="small">${esc(stageLabel(c.stage))}</span></td>
       <td>${healthChip(c.health)}</td><td>${prio(c.priority)}</td>
       ${compact ? "" : `<td class="small">${esc(c.owner || "—")}</td>`}
@@ -230,6 +230,7 @@ PAGES.register = async (r) => {
     if (q.flag === "overdue" && !c.flags.some((x) => x.kind === "overdue")) return false;
     if (q.flag === "owner" && !c.flags.some((x) => ["owner", "sponsor"].includes(x.kind))) return false;
     if (q.area && !c.business_areas.includes(q.area)) return false;
+    if (q.parent && c.parent_id !== q.parent && c.id !== q.parent) return false;
     return true;
   });
   f = sortRows(f, q.sort || "id", q.dir !== "desc");
@@ -246,6 +247,7 @@ PAGES.register = async (r) => {
       ${fsel("status", META.statuses, "All statuses")}
       ${fsel("owner", owners, "All owners")}
       ${fsel("quadrant", [...META.quadrants, "Not scored"], "All quadrants")}
+      ${rows.some((c) => c.parts) ? fsel("parent", rows.filter((c) => c.parts).map((c) => [c.id, c.name + " + its parts"]), "All programmes") : ""}
       ${q.movement || q.flag || q.area ? `<span class="chip info">${esc(special[q.movement] || special[q.flag] || q.area)} <a href="#" data-act="clear-special" style="margin-left:4px">×</a></span>` : ""}
       <span class="count">${f.length} of ${rows.length}</span>${Object.keys(q).some((k) => !["sort", "dir"].includes(k)) ? `<button class="btn sm" data-act="clear-filters">Clear</button>` : ""}
     </div></section>
@@ -270,7 +272,7 @@ PAGES.pipeline = async (r) => {
     <div class="filters" style="margin-bottom:10px">${typeFilter(r.q)}<span class="count">${rows.length} live</span></div>
     <div class="board ${other.length ? "extra" : ""}">${cols.map((col, n) => `<div class="col" data-drop="${esc(col.key)}"><div class="col-h"><span>${col.key === "other" ? "" : `<span class="mono muted">${n + 1}</span> `}${esc(col.label)}</span><span class="n">${col.items.length}</span></div>
       ${sorted(col.items).map((c) => `<div class="icard ${c.health_class}" data-href="#/i/${c.id}" draggable="true" data-drag="${c.id}"><div class="t">${esc(c.name)}</div>
-        <div class="r">${prio(c.priority)}${c.quadrant ? `<span class="hint">· ${esc(c.quadrant)}</span>` : ""}</div><div class="s">${esc(typeOf(c))}</div>${badge(c)}
+        <div class="r">${prio(c.priority)}${c.quadrant ? `<span class="hint">· ${esc(c.quadrant)}</span>` : ""}</div><div class="s">${esc(typeOf(c))}${c.parent_name ? ` · part of ${esc(c.parent_name)}` : ""}${c.parts ? ` · ${plural(c.parts, "part")}` : ""}</div>${badge(c)}
         <div class="s">${esc(c.owner || "Owner not set")}</div>
         ${c.movement ? `<div class="s">${esc(c.movement)} · ${fmtD(c.latest_update_date)}</div>` : ""}</div>`).join("") || `<div class="empty">—</div>`}</div>`).join("")}</div></section>`;
 };
@@ -365,8 +367,8 @@ PAGES.i = async (r) => {
         ${c.updates[0] ? `<div class="hint">${fmtD(c.updates[0].update_date)} · ${esc(c.updates[0].update_type || "")} · ${esc(c.movement || "")}</div><div style="font-size:13px;margin:4px 0 10px">${esc(c.latest_update_summary)}</div>` : `<div class="hint">No updates logged yet.</div>`}
         <dl class="kv"><dt>Decision needed</dt><dd class="pre">${esc(c.decision_needed || "—")}</dd><dt>Next action</dt><dd class="pre">${esc(c.next_action || "—")}</dd>
           <dt>Action owner</dt><dd>${esc(c.next_action_owner || "—")}${c.next_action_due ? ` · due ${fmtD(c.next_action_due)}` : ""}</dd></dl></div>
-      <div class="card"><div class="card-title">Dependencies & related</div><div class="small pre">${esc(f.dependencies || "None recorded.")}</div>
-        ${c.related.length ? `<div style="margin-top:8px">${c.related.map((x) => x.id ? `<a class="tag" href="#/i/${x.id}" style="text-decoration:none;background:#FFF9C4">${esc(x.label)}</a>` : `<span class="tag">${esc(x.label)}</span>`).join("")}</div>` : ""}</div>
+      ${linkedCard(c)}
+      <div class="card"><div class="card-title">Dependencies</div><div class="small pre">${esc(f.dependencies || "None recorded.")}</div></div>
     </div><div class="grid" style="align-content:start">
       <div class="card"><div class="card-title">Flags</div>${flagList(c.flags)}</div>
       ${stageGate(selStage >= 0 ? selStage : 0, c)}
@@ -411,12 +413,25 @@ PAGES.i = async (r) => {
   }
   return `<section><div class="job-head"><div><div class="id"><a href="#/register">Register</a> / ${esc(c.id)}</div><h1>${esc(c.name)}</h1>
       <div class="btn-row" style="margin:4px 0">${healthChip(c.health)} ${prio(c.priority)} <span class="chip outline">${esc(c.status || "No status")}</span> ${quadChip(c.quadrant)} ${c.bucket ? `<span class="hint">${esc(c.bucket)}</span>` : ""}</div>
-      <div class="meta">Owner <b>${esc(c.owner || "not set")}</b> · Sponsor <b>${esc(c.sponsor || "not set")}</b></div></div>
+      <div class="meta">Owner <b>${esc(c.owner || "not set")}</b> · Sponsor <b>${esc(c.sponsor || "not set")}</b>${c.parent ? ` · Part of <a href="#/i/${c.parent.id}"><b>${esc(c.parent.name)}</b></a>` : ""}${c.parts_list.length ? ` · <a href="#/i/${c.id}"><b>${plural(c.parts_list.length, "part")}</b></a>` : ""}</div></div>
     <div class="right"><div class="btn-row"><button class="btn accent" data-act="log-update" data-id="${c.id}">Log update</button><button class="btn primary" data-act="decide" data-id="${c.id}">Record decision</button></div>
       <div class="btn-row">${c.stage_index < META.stages.length - 1 ? `<button class="btn sm" data-act="move-stage" data-id="${c.id}" data-to="${esc(META.stages[c.stage_index + 1].key)}">Move to ${esc(META.stages[c.stage_index + 1].label)} →</button>` : ""}<button class="btn sm" data-act="score" data-id="${c.id}">${c.score ? "Re-score" : "Score"}</button><button class="btn sm" data-act="edit" data-id="${c.id}">Edit details</button><a class="btn sm" href="#/workshop?start=${c.id}">Workshop view</a></div></div></div></section>
   <section>${stageStrip(c, selStage)}<div class="hint" style="margin-top:4px">Click a stage to see what it expects, and to move the initiative there.</div></section>
   <section><div class="tabs">${tabs.map(([k, l]) => `<button class="${k === tab ? "on" : ""}" data-act="tab" data-tab="${k}">${l}</button>`).join("")}</div>${body}</section>`;
 };
+
+function linkedCard(c) {
+  const r = c.rollup, parts = c.parts_list;
+  const partsTable = parts.length ? `<div class="small" style="margin:2px 0 8px">${r.live} live part${r.live === 1 ? "" : "s"}${r.closed ? `, ${r.closed} closed` : ""}${r.worst_health ? ` · worst health ${healthChip(r.worst_health)}` : ""}${r.blocked.length ? ` · <b style="color:var(--red-ink)">blocked or escalated: ${esc(r.blocked.join(", "))}</b>` : ""}</div>
+    <table class="ops"><thead><tr><th>Part</th><th>Stage</th><th>Health</th><th>Last movement</th><th></th></tr></thead><tbody>${parts.map((x) => `<tr class="click" data-href="#/i/${x.id}"><td><b>${esc(x.name)}</b><div class="hint">${esc(x.owner || "owner not set")}</div></td><td class="small nowrap">${stageMini(x.stage_index)} ${esc(stageLabel(x.stage))}</td><td>${healthChip(x.health)}</td><td class="small">${esc(x.movement || "—")}<div class="hint">${fmtD(x.latest_update_date)}</div></td><td><button class="btn sm" data-act="unlink" data-id="${x.id}" title="No longer part of ${esc(c.name)}">Unlink</button></td></tr>`).join("")}</tbody></table>` : "";
+  const sugg = c.suggested_parts.length ? `<div class="prompt" style="font-style:normal"><b>Suggested parts</b> <span class="hint">— the register routes these through ${esc(c.name)}</span>
+    <div class="checks" style="flex-direction:column;gap:4px;margin:6px 0">${c.suggested_parts.map((x) => `<label><input type="checkbox" name="sugg" value="${x.id}"> ${esc(x.name)} <span class="hint">(${esc(x.why)})</span></label>`).join("")}</div>
+    <button class="btn sm primary" data-act="link-suggested" data-id="${c.id}">Link ticked as parts</button></div>` : "";
+  const rel = c.related.length ? `<div style="margin-top:8px"><span class="hint">Related:</span> ${c.related.map((x) => x.id ? `<a class="tag" href="#/i/${x.id}" style="text-decoration:none;background:#FFF9C4">${esc(x.label)}</a>` : `<span class="tag">${esc(x.label)}</span>`).join("")}</div>` : "";
+  return `<div class="card"><div class="card-title"><span class="grow">Linked initiatives</span><button class="btn sm" data-act="add-parts" data-id="${c.id}">+ Add parts</button><button class="btn sm" data-act="edit" data-id="${c.id}">Part of / related…</button></div>
+    ${c.parent ? `<div class="small" style="margin-bottom:8px">Part of <a href="#/i/${c.parent.id}"><b>${esc(c.parent.name)}</b></a> ${healthChip(c.parent.health)} <span class="hint">${esc(stageLabel(c.parent.stage))}</span></div>` : ""}
+    ${partsTable}${sugg}${rel}${!c.parent && !parts.length && !sugg && !rel ? `<div class="hint">Not linked to anything yet. Use <b>+ Add parts</b> if other initiatives belong to this one, or <b>Part of / related</b> to link it to a bigger piece of work.</div>` : ""}</div>`;
+}
 
 function updateEntry(u) {
   return `<div class="upd ${esc(u.update_type || "")} ${u.action_status === "Superseded" ? "superseded" : ""}"><div class="h"><span class="d">${fmtD(u.update_date)}</span><span>${esc(u.update_type || "")}</span>
@@ -460,7 +475,7 @@ PAGES.workshop = async (r) => {
         <div><div class="hint mono">${esc(c.id)} · ${esc(typeOf(c))}${c.effort ? ` · ${esc(c.effort)}` : ""}</div><h1>${esc(c.name)}</h1>
           <div class="btn-row" style="margin:6px 0">${healthChip(c.health)} ${prio(c.priority)} <span class="chip outline">${esc(c.status || "")}</span> ${quadChip(c.quadrant)}${s ? `<span class="hint mono">V${s.value_total} · C${s.complexity_total}</span>` : ""}</div>
           <div class="lead">${esc(c.short_description || "")}</div>
-          <div class="hint" style="margin-top:4px">Owner <b>${esc(c.owner || "not set")}</b> · Sponsor <b>${esc(c.sponsor || "not set")}</b></div></div>
+          <div class="hint" style="margin-top:4px">Owner <b>${esc(c.owner || "not set")}</b> · Sponsor <b>${esc(c.sponsor || "not set")}</b>${c.parent ? ` · Part of <b>${esc(c.parent.name)}</b>` : ""}${c.parts_list.length ? ` · ${plural(c.parts_list.length, "part")}: ${c.parts_list.map((x) => esc(x.name)).join(", ")}` : ""}</div></div>
         ${stageStrip(c, -1)}
         ${(() => { const x = WS_MV[c.id]; return x && (x.health_dir !== "same" || x.stage_delta || x.movement) ? `<div class="small">Since the review on ${fmtD(WS_SINCE)}: ${x.stage_delta ? stageMove(x) + " · " : ""}${x.health_then ? healthChip(x.health_then) + " → " : ""}${healthChip(x.health_now)} ${HEALTH_ARROW[x.health_dir] || ""} · ${moveChip(x.movement)}</div>` : ""; })()}
         <div><div class="card-title">Decision needed</div><div class="big-q pre">${esc(c.decision_needed || "None recorded")}</div></div>
@@ -669,14 +684,25 @@ function initiativeForm(c) {
   return `${field("Name", inp("name", f.name, "text", "required"))}
     ${field("Short description", ta("short_description", f.short_description, 3, `placeholder="What is it, and why does it matter? One or two sentences is enough to start."`))}
     <div class="row">${field("Primary owner", inp("primary_owner", f.primary_owner, "text", `list="owners"`))}${field("Sponsor / exec lead", inp("sponsor", f.sponsor))}</div>
+    ${field("Part of", sel("parent_id", (CACHE || []).filter((x) => x.id !== c?.id).map((x) => [x.id, x.name]), f.parent_id || ""), "the bigger initiative or programme this belongs to, if any")}
     <div class="row">${field("Stage", sel("stage", META.stages.map((s) => [s.key, s.label]), f.stage || "Idea/concept", false))}${field("Priority", sel("priority", META.priorities, f.priority || "Medium", false))}${field("Health", sel("health", META.healths, f.health || "Grey", false))}</div>
     <div class="row">${field("Initiative type", sel("portfolio_bucket", META.buckets, f.portfolio_bucket))}${field("Effort / resource ask", sel("effort", META.efforts, f.effort))}${field("Status", sel("portfolio_status", META.statuses, f.portfolio_status || "Proposed", false))}${field("Next review", inp("next_review_date", f.next_review_date, "date"))}</div>
     ${field("Business areas", checks("business_areas", META.business_areas, f.business_areas))}
     ${c ? `${field("Decision needed", ta("decision_needed", f.decision_needed, 2))}${field("Dependencies", ta("dependencies", f.dependencies, 2))}
       <div class="row">${field("Evidence status", inp("evidence_status", f.evidence_status))}${field("Confidence", inp("confidence", f.confidence))}${field("Funding / resource ask (notes)", inp("funding_ask", f.funding_ask))}</div>
-      ${field("Related initiatives", inp("related_initiatives", (f.related_initiatives || []).join("; ")), "separate with ;")}${field("Comments", ta("comments", f.comments, 3))}`
+      ${relatedPicker(c)}${field("Comments", ta("comments", f.comments, 3))}`
       : `${field("Decision needed first", ta("decision_needed", "", 2, `placeholder="Optional — what would you want leadership to decide?"`))}`}
     <datalist id="owners">${META.owners.map((o) => `<option value="${esc(o)}">`).join("")}</datalist>`;
+}
+
+function relatedPicker(c) {
+  const chosen = c.fields.related_initiatives || [];
+  const others = (CACHE || []).filter((x) => x.id !== c.id);
+  const lc = (s) => s.toLowerCase();
+  const picked = new Set(c.related.filter((r) => r.id).map((r) => r.id));
+  const unmatched = c.related.filter((r) => !r.id).map((r) => r.label);
+  return field("Related initiatives", `<div class="checks" style="max-height:150px;overflow-y:auto;border:1px solid var(--line);border-radius:4px;padding:6px 8px">${others.map((x) => `<label style="width:48%"><input type="checkbox" name="rel[]" value="${esc(x.name)}" ${picked.has(x.id) || chosen.some((n) => lc(n) === lc(x.name)) ? "checked" : ""}>${esc(x.name)}</label>`).join("")}</div>`, "tick any that are connected")
+    + field("Other related work not in the register", inp("rel_other", unmatched.join("; ")), "e.g. RHIO; FMG — separate with ;");
 }
 
 function updateForm(c) {
@@ -729,12 +755,26 @@ function moveForm(c, toKey) {
 async function openForm(kind, id, extra = {}) {
   const c = id ? await GET(`/api/initiatives/${id}`) : null;
   if (kind === "new") {
+    if (!CACHE) await refreshCache();
     modal("New initiative", initiativeForm(null), "Add to register", async (d) => {
       const r = await api("POST", "/api/initiatives", nul(d));
       META = await GET("/api/meta"); location.hash = `#/i/${r.id}`; return r;
     }, { wide: true });
   } else if (kind === "edit") {
-    modal(`Edit — ${c.name}`, initiativeForm(c), "Save", async (d) => { const r = await api("PATCH", `/api/initiatives/${id}`, nul(d)); META = await GET("/api/meta"); return r; }, { wide: true });
+    if (!CACHE) await refreshCache();
+    modal(`Edit — ${c.name}`, initiativeForm(c), "Save", async (d) => {
+      d.related_initiatives = [...(d.rel || []), ...String(d.rel_other || "").split(";").map((x) => x.trim()).filter(Boolean)];
+      delete d.rel; delete d.rel_other;
+      d.parent_id = d.parent_id || "";
+      const r = await api("PATCH", `/api/initiatives/${id}`, nul(d)); META = await GET("/api/meta"); return r;
+    }, { wide: true });
+  } else if (kind === "parts") {
+    if (!CACHE) await refreshCache();
+    const anc = new Set(); let p = c.parent_id; while (p) { anc.add(p); p = CACHE.find((x) => x.id === p)?.parent_id; }
+    const free = CACHE.filter((x) => x.id !== c.id && !anc.has(x.id) && x.parent_id !== c.id);
+    modal(`Add parts to ${c.name}`, `<div class="hint" style="margin-top:-4px">Tick the initiatives that are part of ${esc(c.name)}. One already part of something else moves here.</div>
+      <div class="checks" style="flex-direction:column;gap:4px">${free.map((x) => `<label><input type="checkbox" name="ids[]" value="${x.id}"> ${esc(x.name)} ${x.parent_name ? `<span class="hint">(now part of ${esc(x.parent_name)})</span>` : ""}</label>`).join("")}</div>`,
+      "Link as parts", (d) => { if (!(d.ids || []).length) throw new Error("Tick at least one initiative"); return api("POST", `/api/initiatives/${id}/parts`, { ids: d.ids }); }, { wide: true });
   } else if (kind === "update") {
     modal(`Log update — ${c.name}`, updateForm(c), "Log update", (d) => api("POST", `/api/initiatives/${id}/updates`, nul(d)), { wide: true });
   } else if (kind === "score") {
@@ -773,6 +813,9 @@ document.addEventListener("click", async (e) => {
     if (act === "score") return openForm("score", a.dataset.id);
     if (act === "decide") return openForm("decide", a.dataset.id);
     if (act === "move-stage") return openForm("move", a.dataset.id, { to: a.dataset.to });
+    if (act === "add-parts") return openForm("parts", a.dataset.id);
+    if (act === "unlink") { try { toast((await api("PATCH", `/api/initiatives/${a.dataset.id}`, { parent_id: null })).message.replace("saved", "unlinked")); render(); } catch (err) { toast(err.message, true); } return; }
+    if (act === "link-suggested") { const ids = $$("input[name=sugg]:checked").map((x) => x.value); if (!ids.length) return toast("Tick at least one", true); try { toast((await api("POST", `/api/initiatives/${a.dataset.id}/parts`, { ids })).message); render(); } catch (err) { toast(err.message, true); } return; }
     if (act === "show") { setQuery({ show: parseRoute().q.show === a.dataset.key ? "" : a.dataset.key }); return render(); }
     if (act === "clear-show") { e.preventDefault(); setQuery({ show: "" }); return render(); }
     if (act === "save-aliases") { try { toast((await api("PUT", "/api/settings/aliases", { text: $("#aliases").value })).message); render(); } catch (err) { toast(err.message, true); } return; }

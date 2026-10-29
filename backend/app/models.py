@@ -52,6 +52,7 @@ class Initiative(Base):
     client_impact: Mapped[str | None] = mapped_column(String(200), nullable=True)
     funding_ask: Mapped[str | None] = mapped_column(String(200), nullable=True)
     effort: Mapped[str | None] = mapped_column(String(40), nullable=True)  # L.EFFORTS scale
+    parent_id: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)  # "part of" another initiative
     related_initiatives: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now, onupdate=now)

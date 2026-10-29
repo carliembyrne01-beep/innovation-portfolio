@@ -24,7 +24,7 @@ from . import logic as L
 from . import models as m
 from .db import DB_PATH, Base, SessionLocal, engine, get_db
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 STATIC = Path(__file__).resolve().parent / "static"
 
 
@@ -152,7 +152,7 @@ def card(i: m.Initiative, s, u, prio, cuts, dec=None) -> dict:
     use_u = u is not None and (u.action_status or "Open") != "Superseded"
     return {
         "id": i.id, "name": i.name, "created": iso(i.created_at), "short_description": i.short_description, "owner": i.primary_owner, "sponsor": i.sponsor,
-        "bucket": i.portfolio_bucket, "effort": i.effort, "business_areas": i.business_areas or [], "routes": i.primary_route or [],
+        "bucket": i.portfolio_bucket, "effort": i.effort, "parent_id": i.parent_id, "business_areas": i.business_areas or [], "routes": i.primary_route or [],
         "value_types": i.value_types or [], "stage": i.stage, "stage_index": L.stage_index(i.stage),
         "status": i.portfolio_status, "priority": i.priority, "health": i.health, "health_class": L.health_class(i.health),
         "next_review_date": iso(i.next_review_date), "last_reviewed_date": iso(i.last_reviewed_date),
@@ -175,7 +175,13 @@ def card(i: m.Initiative, s, u, prio, cuts, dec=None) -> dict:
 def all_cards(db) -> list[dict]:
     cuts, sc, up, pr, dc = get_cuts(db), active_scores(db), latest_updates(db), primary_priorities(db), last_decisions(db)
     inits = db.scalars(select(m.Initiative).order_by(m.Initiative.id)).all()
-    return [card(i, sc.get(i.id), up.get(i.id), pr.get(i.id), cuts, dc.get(i.id)) for i in inits]
+    cards = [card(i, sc.get(i.id), up.get(i.id), pr.get(i.id), cuts, dc.get(i.id)) for i in inits]
+    names = {c["id"]: c["name"] for c in cards}
+    kids = Counter(c["parent_id"] for c in cards if c["parent_id"])
+    for c in cards:
+        c["parent_name"] = names.get(c["parent_id"])
+        c["parts"] = kids.get(c["id"], 0)
+    return cards
 
 
 def update_dict(u: m.Update, names: dict | None = None) -> dict:
@@ -312,11 +318,33 @@ def initiative_detail(iid: str, db: Session = Depends(get_db)):
     for r in i.related_initiatives or []:
         hit = by_name.get(r.lower()) or next((k for n, k in by_name.items() if k != iid and (r.lower() in n or n in r.lower()) and len(r) > 3), None)
         related.append({"label": r, "id": hit})
+    # "Part of" links: this initiative's parent, its parts (with a roll-up), and suggested parts.
+    everyone = all_cards(db)
+    parts = [x for x in everyone if x["parent_id"] == iid]
+    parent = next((x for x in everyone if x["id"] == i.parent_id), None)
+    live_parts = [x for x in parts if x["status"] not in ("Stopped", "Closed / BAU")]
+    worst = max((x["health"] for x in live_parts if x["health"] in L.HEALTH_RANK), key=lambda h: L.HEALTH_RANK[h], default=None)
+    rollup = {"live": len(live_parts), "closed": len(parts) - len(live_parts), "worst_health": worst,
+              "health": dict(Counter(x["health"] or "Grey" for x in live_parts)),
+              "stages": dict(Counter(x["stage"] for x in live_parts)),
+              "blocked": [x["name"] for x in live_parts if x["movement"] in ("Blocked", "Escalated")]}
+    suggest = []
+    if i.portfolio_bucket == "Strategic Workstream":
+        # The register's "Primary Route" names the workstream an initiative runs through, e.g. "Integrated Platform".
+        mine = i.name.lower()
+        taken = {iid, *(x["id"] for x in parts)}
+        anc = i.parent_id
+        while anc:
+            taken.add(anc)
+            anc = next((x["parent_id"] for x in everyone if x["id"] == anc), None)
+        suggest = [{"id": x["id"], "name": x["name"], "why": f"Primary route: {r}"}
+                   for x in everyone if x["id"] not in taken and not x["parent_id"]
+                   for r in (x["routes"] or [])[:1] if len(r) > 3 and r.lower() in mine]
     fields = {col.name: getattr(i, col.name) for col in m.Initiative.__table__.columns}
     for k in ("next_review_date", "last_reviewed_date", "created_at", "updated_at"):
         fields[k] = iso(fields[k])
     return {
-        **c, "fields": fields, "related": related,
+        **c, "fields": fields, "related": related, "parent": parent, "parts_list": parts, "rollup": rollup, "suggested_parts": suggest,
         "score": score_dict(active, cuts), "score_history": [score_dict(s, cuts) for s in scores],
         "alignments": [{c2.name: getattr(a, c2.name) for c2 in m.Alignment.__table__.columns} for a in aligns],
         "updates": [update_dict(u) for u in updates], "decisions": [decision_dict(x) for x in decisions],
@@ -342,6 +370,7 @@ class InitiativeIn(BaseModel):
     evidence_status: str | None = None
     dependencies: str | None = None
     effort: str | None = None
+    parent_id: str | None = None
     related_initiatives: list[str] = []
 
 
@@ -349,16 +378,34 @@ class InitiativeIn(BaseModel):
 def create_initiative(x: InitiativeIn, db: Session = Depends(get_db)):
     nums = [int(k.split("-")[1]) for k in db.scalars(select(m.Initiative.id)).all() if k.startswith("INIT-") and k.split("-")[1].isdigit()]
     iid = f"INIT-{(max(nums) + 1 if nums else 1):04d}"
+    check_parent(db, iid, x.parent_id)
     i = m.Initiative(id=iid, **x.model_dump())
     db.add(i)
     db.commit()
     return {"id": iid, "message": f"{iid} {x.name} added to the register"}
 
 
+def check_parent(db, child_id: str, parent_id: str | None):
+    """A parent must exist, not be the initiative itself, and not be one of its own parts (no loops)."""
+    if not parent_id:
+        return
+    if parent_id == child_id:
+        raise HTTPException(422, "An initiative can't be part of itself")
+    p = db.get(m.Initiative, parent_id)
+    if not p:
+        raise HTTPException(422, f"Initiative {parent_id} not found")
+    seen = set()
+    while p is not None and p.id not in seen:
+        if p.id == child_id:
+            raise HTTPException(422, "That would make a loop: the chosen initiative is already part of this one")
+        seen.add(p.id)
+        p = db.get(m.Initiative, p.parent_id) if p.parent_id else None
+
+
 EDITABLE = {"name", "short_description", "primary_owner", "sponsor", "portfolio_bucket", "business_areas", "value_types", "primary_route",
             "stage", "portfolio_status", "priority", "health", "decision_needed", "next_action", "next_action_owner",
             "next_review_date", "last_reviewed_date", "evidence_status", "dependencies", "comments", "confidence",
-            "integrated_platform_link", "commercial_decision_required", "client_impact", "funding_ask", "effort", "related_initiatives"}
+            "integrated_platform_link", "commercial_decision_required", "client_impact", "funding_ask", "effort", "related_initiatives", "parent_id"}
 
 
 @app.patch("/api/initiatives/{iid}")
@@ -372,9 +419,27 @@ def edit_initiative(iid: str, body: dict, db: Session = Depends(get_db)):
             v = date.fromisoformat(v) if v else None
         if k in ("business_areas", "value_types", "primary_route", "related_initiatives") and isinstance(v, str):
             v = I.split_list(v)
+        if k == "parent_id":
+            check_parent(db, iid, v or None)
         setattr(i, k, v if v != "" else None)
     db.commit()
     return {"message": f"{i.name} saved"}
+
+
+class PartsIn(BaseModel):
+    ids: list[str]
+
+
+@app.post("/api/initiatives/{iid}/parts")
+def add_parts(iid: str, x: PartsIn, db: Session = Depends(get_db)):
+    """Make each listed initiative part of this one."""
+    parent = get_init(db, iid)
+    for cid in x.ids:
+        get_init(db, cid)
+        check_parent(db, cid, iid)
+        db.get(m.Initiative, cid).parent_id = iid
+    db.commit()
+    return {"message": f"{len(x.ids)} initiative{'s' if len(x.ids) != 1 else ''} linked as part of {parent.name}"}
 
 
 class UpdateIn(BaseModel):

@@ -9,6 +9,7 @@ Last updated: 29 Oct 2026
 | v0.1 | Replaced the four MS Lists: register, scoring, alignment, updates log. CSV import with a check report, and CSV export for Power BI. Overview, register, pipeline, value × complexity matrix, strategy alignment. Workshop mode for the monthly review (Stop / Hold / Continue / Pivot / Scale), open actions, decisions log, printable leadership pack |
 | v0.2 | Renamed to Initiative Portfolio (any non-BAU work). Initiative type and effort / resource ask. Resource load view. Close → BAU decision. Generic stage wording. Move initiatives between stages, by dragging on the pipeline or from the stage strip, with a logged reason |
 | v0.3 | Movement between reviews: Movement page, pipeline arrows, health-over-time strip, movement in Workshop mode and the leadership pack. Flag when the register's health differs from the latest update |
+| v0.4 | Linked initiatives: "part of" (programme → parts, with a combined status), suggested parts from the register's Primary Route, related initiatives picked from the list |
 
 ## On hold
 

@@ -235,3 +235,42 @@ def test_register_and_update_health_mismatch_is_flagged(loaded):
     loaded.patch("/api/initiatives/INIT-0001", json={"health": "Green"})
     flags = loaded.get("/api/initiatives/INIT-0001").json()["flags"]
     assert any(f["kind"] == "health_mismatch" for f in flags)
+
+
+# ---------------------------------------------------------------- v0.4: linked initiatives
+def test_parts_rollup_and_loops(loaded):
+    loaded.patch("/api/initiatives/INIT-0001", json={"portfolio_bucket": "Strategic Workstream"})
+    r = loaded.post("/api/initiatives", json={"name": "FLOW", "parent_id": "INIT-0001", "health": "Green"}).json()
+    assert loaded.post("/api/initiatives/INIT-0001/parts", json={"ids": ["INIT-0002"]}).status_code == 200
+    p = loaded.get("/api/initiatives/INIT-0001").json()
+    assert {x["name"] for x in p["parts_list"]} == {"FLOW", "Test Tool"}
+    assert p["rollup"]["live"] == 2 and p["rollup"]["worst_health"] == "Green"
+    child = loaded.get(f"/api/initiatives/{r['id']}").json()
+    assert child["parent"]["id"] == "INIT-0001" and child["parent_id"] == "INIT-0001"
+    cards = {c["id"]: c for c in loaded.get("/api/initiatives").json()}
+    assert cards["INIT-0001"]["parts"] == 2 and cards["INIT-0002"]["parent_name"] == "Test Platform"
+    # no loops, no self-links, no unknown parents
+    assert loaded.patch("/api/initiatives/INIT-0001", json={"parent_id": "INIT-0002"}).status_code == 422
+    assert loaded.patch("/api/initiatives/INIT-0001", json={"parent_id": "INIT-0001"}).status_code == 422
+    assert loaded.patch("/api/initiatives/INIT-0001", json={"parent_id": "INIT-9999"}).status_code == 422
+    # unlink
+    assert loaded.patch("/api/initiatives/INIT-0002", json={"parent_id": None}).status_code == 200
+    assert loaded.get("/api/initiatives/INIT-0001").json()["rollup"]["live"] == 1
+
+
+def test_suggested_parts_come_from_primary_route(loaded):
+    loaded.patch("/api/initiatives/INIT-0001", json={"portfolio_bucket": "Strategic Workstream", "name": "WSG Integrated Platform"})
+    loaded.patch("/api/initiatives/INIT-0002", json={"primary_route": "Integrated Platform"})
+    s = loaded.get("/api/initiatives/INIT-0001").json()["suggested_parts"]
+    assert [x["id"] for x in s] == ["INIT-0002"]
+    loaded.post("/api/initiatives/INIT-0001/parts", json={"ids": ["INIT-0002"]})
+    assert loaded.get("/api/initiatives/INIT-0001").json()["suggested_parts"] == []
+
+
+def test_part_of_round_trips_through_export(loaded):
+    loaded.post("/api/initiatives/INIT-0001/parts", json={"ids": ["INIT-0002"]})
+    text = loaded.get("/api/export/register.csv").text
+    assert '"Part Of Initiative ID"' in text
+    loaded.patch("/api/initiatives/INIT-0002", json={"parent_id": None})
+    loaded.post("/api/import/apply", json={"files": [{"filename": "r.csv", "content_base64": base64.b64encode(text.encode()).decode()}]})
+    assert loaded.get("/api/initiatives/INIT-0002").json()["parent_id"] == "INIT-0001"
