@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WSG Innovation Portfolio — start on macOS / Linux (needs Python 3.11+)
+# WSG Initiative Portfolio — start on macOS / Linux (needs Python 3.11+)
 set -e
 cd "$(dirname "$0")/backend"
 [ -d .venv ] || python3 -m venv .venv

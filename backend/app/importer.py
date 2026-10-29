@@ -31,7 +31,9 @@ REGISTER = [
     ("Integrated Platform Link", "integrated_platform_link", "str"), ("Commercial Decision Required", "commercial_decision_required", "str"),
     ("Client Impact", "client_impact", "str"), ("Funding/Resource Ask", "funding_ask", "str"),
     ("Related Initiatives", "related_initiatives", "list"),
+    ("Effort Level", "effort", "str"),  # added by this app; not in the original MS List
 ]
+OPTIONAL = {"Effort Level"}
 SCORES = [
     ("Score ID", "id", "str"), ("Initiative ID", "initiative_id", "str"), ("Initiative Name", None, "skip"),
     ("Score Date", "score_date", "date"),
@@ -201,7 +203,7 @@ def plan(db: Session, files: list[tuple[str, bytes]], cuts: dict) -> list[dict]:
             continue
         spec = KINDS[p["kind"]]
         rep["label"] = spec["label"]
-        missing = [c for c, a, t in spec["cols"] if t != "skip" and c not in p["heads"]]
+        missing = [c for c, a, t in spec["cols"] if t != "skip" and c not in p["heads"] and c not in OPTIONAL]
         if missing:
             rep["issues"].append({"row": 1, "level": "warning", "msg": "Columns not in this file (left blank): " + ", ".join(missing)})
         dayfirst = day_first(p["rows"], spec["cols"])
@@ -292,6 +294,8 @@ def apply(db: Session, reports: list[dict]) -> dict:
             for k, v in rec.items():
                 if k != "id":
                     setattr(obj, k, v)
+            if model is m.Initiative and not obj.effort:
+                obj.effort = L.effort_from_text(obj.funding_ask)
         db.flush()
         counts[rep["label"]] = len(rep["records"])
     # One active score per initiative: keep the latest active one.

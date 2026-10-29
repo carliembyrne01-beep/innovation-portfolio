@@ -1,4 +1,4 @@
-/* Innovation Portfolio — additions on top of the shared WSG app.css */
+/* Initiative Portfolio — additions on top of the shared WSG app.css */
 
 /* header search + add */
 .top-search { margin-left: auto; position: relative; width: min(340px, 40vw); }
@@ -96,7 +96,7 @@ table.heat td.tot { width: auto; padding: 0 8px; font-family: var(--font-mono); 
 .hint { font-size: 11px; color: var(--muted); }
 
 /* decisions */
-.decide { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.decide { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
 .decide label { cursor: pointer; }
 .decide input { position: absolute; opacity: 0; pointer-events: none; }
 .decide span { display: flex; flex-direction: column; gap: 2px; border: 2px solid var(--line); border-radius: 4px; padding: 8px; background: #fff; font-family: var(--font-display); font-weight: 700; font-size: 13px; text-align: center; }
@@ -107,6 +107,10 @@ table.heat td.tot { width: auto; padding: 0 8px; font-family: var(--font-mono); 
 .dchip.Stop { background: var(--red-bg); color: var(--red-ink); } .dchip.Hold { background: var(--grey-bg); color: var(--grey-ink); }
 .dchip.Continue { background: var(--green-bg); color: var(--green-ink); } .dchip.Pivot { background: var(--amber-bg); color: var(--amber-ink); }
 .dchip.Scale { background: var(--wsg-black); color: var(--wsg-gold); }
+.dchip.Close { background: #E0F2FE; color: #075985; }
+.col.over { outline: 3px dashed var(--wsg-black); outline-offset: -3px; background: #FFF6B3; }
+.icard[draggable=true] { cursor: grab; } .icard.dragging { opacity: .4; }
+.upd.Stage.move::before { background: var(--wsg-black); }
 
 /* update timeline */
 .upd { border-left: 3px solid var(--line); padding: 2px 0 12px 14px; position: relative; }

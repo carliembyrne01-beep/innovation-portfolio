@@ -1,6 +1,6 @@
-/* WSG Innovation Portfolio — plain JavaScript, no build step.
+/* WSG Initiative Portfolio — plain JavaScript, no build step.
    Hash routes: #/  #/register  #/pipeline  #/matrix  #/alignment  #/i/INIT-0003?tab=scoring
-                #/workshop  #/updates  #/actions  #/decisions  #/pack  #/import  #/framework */
+                #/workshop  #/updates  #/actions  #/decisions  #/pack  #/resources  #/import  #/framework */
 "use strict";
 
 // ------------------------------------------------------------------ helpers
@@ -14,7 +14,9 @@ const HC = { Green: "green", "Green/Amber": "ga", Amber: "amber", "Amber/Red": "
 const hcls = (h) => HC[h] || "grey";
 const healthChip = (h) => `<span class="chip ${hcls(h)}">${dot(hcls(h))}${esc(h || "Grey")}</span>`;
 const prio = (p) => p ? `<span class="prio ${esc(p)}">${esc(p)}</span>` : "—";
-const dchip = (d) => `<span class="dchip ${esc(d)}">${esc(d)}</span>`;
+const dlabel = (d) => (META?.decision_labels || {})[d] || d;
+const dchip = (d) => `<span class="dchip ${esc(d)}">${esc(dlabel(d))}</span>`;
+const typeOf = (c) => c.bucket || "Type not set";
 const quadChip = (q) => q ? `<span class="chip ${q === "Big Bet" ? "dark" : q === "Quick Win" ? "green" : q === "Money Pit / Park" ? "red" : "outline"}">${esc(q)}</span>` : `<span class="chip grey">Not scored</span>`;
 const tags = (list, primary = []) => (list || []).map((t) => `<span class="tag ${primary.includes(t) ? "primary" : ""}">${esc(t)}</span>`).join("");
 const sec = (title, sub, extra = "") => `<div class="sec-head"><div class="t"><h2>${esc(title)}</h2></div>${sub ? `<p>${esc(sub)}</p>` : ""}${extra}</div>`;
@@ -90,7 +92,7 @@ const nul = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v ==
 
 // ------------------------------------------------------------------ navigation
 const NAV = [
-  ["View the portfolio", [["#/", "Overview"], ["#/register", "Register"], ["#/pipeline", "Stage pipeline"], ["#/matrix", "Value × complexity"], ["#/alignment", "Strategy alignment"]]],
+  ["View the portfolio", [["#/", "Overview"], ["#/register", "Register"], ["#/pipeline", "Stage pipeline"], ["#/matrix", "Value × complexity"], ["#/alignment", "Strategy alignment"], ["#/resources", "Resource load"]]],
   ["Run reviews", [["#/workshop", "Workshop mode"], ["#/actions", "Open actions"], ["#/updates", "Updates log"], ["#/decisions", "Decisions log"], ["#/pack", "Leadership pack"]]],
   ["Data", [["#/import", "Import & export"], ["#/framework", "How the framework works"]]],
 ];
@@ -100,7 +102,7 @@ function renderNav(route) {
   $("#nav").innerHTML = NAV.map(([g, items]) => `<div class="nav-group">${g}</div>` + items.map(([href, label]) => {
     const on = href === base || (route.parts[0] === "i" && href === "#/register");
     return `<a href="${href}" class="${on ? "active" : ""}"><span class="lbl">${label}</span></a>`;
-  }).join("")).join("") + `<div class="nav-foot"><button data-act="new-initiative">+ New initiative</button><a href="/docs" target="_blank" style="color:#94A3B8">API documentation ↗</a><span>Innovation Portfolio v${esc(META.version)}</span></div>`;
+  }).join("")).join("") + `<div class="nav-foot"><button data-act="new-initiative">+ New initiative</button><a href="/docs" target="_blank" style="color:#94A3B8">API documentation ↗</a><span>Initiative Portfolio v${esc(META.version)}</span></div>`;
 }
 
 function parseRoute() {
@@ -111,6 +113,8 @@ function parseRoute() {
 const setQuery = (q) => { const r = parseRoute(); const s = new URLSearchParams(Object.entries({ ...r.q, ...q }).filter(([, v]) => v !== "" && v != null)).toString(); history.replaceState(null, "", `#/${r.parts.join("/")}${s ? "?" + s : ""}`); };
 
 // ------------------------------------------------------------------ shared pieces
+const typeFilter = (q) => `<select data-filter="type" aria-label="Initiative type"><option value="">All types</option>${opts(META.buckets, q.type, false)}</select>`;
+const byType = (q) => (c) => !q.type || c.bucket === q.type;
 function flagList(flags, max = 99) {
   if (!flags.length) return `<div class="flag">${dot("green")}<span>Nothing flagged</span></div>`;
   return flags.slice(0, max).map((f) => `<div class="flag">${dot(f.level)}<span>${esc(f.text)}</span></div>`).join("") + (flags.length > max ? `<div class="hint">+${flags.length - max} more</div>` : "");
@@ -125,10 +129,11 @@ function stageStrip(c, selected) {
   }).join("")}</div>${idx < 0 ? `<div class="hint" style="margin-top:6px">Stage "${esc(c.stage || "none")}" isn't one of the five — use Edit to set it.</div>` : ""}`;
 }
 
-function stageGate(n) {
+function stageGate(n, c) {
   const s = META.stages[n];
   if (!s) return "";
-  return `<div class="card tight"><div class="card-title">Stage ${n + 1} · ${esc(s.label)}</div><div style="font-size:12.5px;margin-bottom:6px">${esc(s.objective)}</div>
+  const move = c && n !== c.stage_index ? `<button class="btn sm ${n > c.stage_index ? "accent" : ""}" data-act="move-stage" data-id="${c.id}" data-to="${esc(s.key)}">${n > c.stage_index ? "Move to this stage →" : "← Move back to this stage"}</button>` : c ? `<span class="chip info">Current stage</span>` : "";
+  return `<div class="card tight"><div class="card-title"><span class="grow">Stage ${n + 1} · ${esc(s.label)}</span>${move}</div><div style="font-size:12.5px;margin-bottom:6px">${esc(s.objective)}</div>
     <div class="hint" style="margin-bottom:2px">Evidence expected before moving on:</div><ul style="margin:0;padding-left:18px;font-size:12px">${s.gate.map((g) => `<li>${esc(g)}</li>`).join("")}</ul></div>`;
 }
 
@@ -140,7 +145,7 @@ function initiativeTable(rows, { compact = false } = {}) {
     <th class="sortable" data-sort="quadrant">Quadrant</th>${compact ? "" : `<th class="sortable" data-sort="movement">Last movement</th><th class="sortable" data-sort="next_review_date">Next review</th>`}<th>Flags</th></tr></thead><tbody>
     ${rows.map((c) => `<tr class="click" data-href="#/i/${c.id}">
       <td class="mono nowrap small">${esc(c.id)}</td>
-      <td><b>${esc(c.name)}</b>${compact ? "" : `<div class="desc">${esc(c.short_description)}</div>`}</td>
+      <td><b>${esc(c.name)}</b><div class="hint">${esc(typeOf(c))}${c.effort ? ` · ${esc(c.effort)}` : ""}</div>${compact ? "" : `<div class="desc">${esc(c.short_description)}</div>`}</td>
       <td class="nowrap">${stageMini(c.stage_index)} <span class="small">${esc(stageLabel(c.stage))}</span></td>
       <td>${healthChip(c.health)}</td><td>${prio(c.priority)}</td>
       ${compact ? "" : `<td class="small">${esc(c.owner || "—")}</td>`}
@@ -176,7 +181,8 @@ PAGES[""] = async () => {
         <div style="width:150px" class="small"><span class="mono muted">${s.key === "other" ? "—" : n + 1}</span> <b>${esc(s.label)}</b></div>
         <div class="grow"><div class="bar" style="height:16px"><div style="width:${(s.items.length / maxStage) * 100}%;background:var(--wsg-black);display:flex"></div></div></div>
         <div class="mono" style="width:24px;text-align:right">${s.items.length}</div></div>`).join("")}
-      <div class="grid g2" style="margin-top:14px">
+      <div class="grid g3" style="margin-top:14px">
+        <div><div class="card-title">By type</div>${d.by_type.map((t) => `<div class="list-row" style="padding:4px 0;cursor:pointer" data-href="#/register?bucket=${encodeURIComponent(t.label)}"><span class="small grow">${esc(t.label)}</span><span class="mono">${t.n}</span></div>`).join("")}</div>
         <div><div class="card-title">Health</div>${d.health.filter((h) => h.n).map((h) => `<div class="list-row" style="padding:4px 0;cursor:pointer" data-href="#/register?health=${encodeURIComponent(h.label)}">${healthChip(h.label)}<span class="grow"></span><span class="mono">${h.n}</span></div>`).join("")}</div>
         <div><div class="card-title">Quadrant <a class="small" href="#/matrix" style="margin-left:auto">matrix →</a></div>${d.quadrants.filter((q) => q.n).map((q) => `<div class="list-row" style="padding:4px 0;cursor:pointer" data-href="#/register?quadrant=${encodeURIComponent(q.label)}">${quadChip(q.label === "Not scored" ? null : q.label)}<span class="grow"></span><span class="mono">${q.n}</span></div>`).join("")}
           ${d.quadrants[1].n > live * 0.6 ? `<div class="hint" style="margin-top:6px">Most initiatives land in Big Bet at the current lines. <a href="#/matrix">Adjust the lines</a> to separate them.</div>` : ""}</div>
@@ -184,7 +190,7 @@ PAGES[""] = async () => {
     </div>
     <div class="card"><div class="card-title"><span class="grow">Needs attention</span></div>
       ${d.attention.length ? d.attention.map((c) => `<div class="list-row" style="cursor:pointer;align-items:flex-start" data-href="#/i/${c.id}">${dot(c.health_class)}<div class="grow"><b>${esc(c.name)}</b>
-        <div class="hint">${prio(c.priority)} · ${esc(stageLabel(c.stage))} · ${esc(c.movement || "no update")}</div><div class="small" style="margin-top:2px">${esc(c.decision_needed || c.next_action || "")}</div></div></div>`).join("") : `<div class="empty">Nothing red, blocked or critical.</div>`}
+        <div class="hint">${prio(c.priority)} · ${esc(typeOf(c))} · ${esc(stageLabel(c.stage))} · ${esc(c.movement || "no update")}</div><div class="small" style="margin-top:2px">${esc(c.decision_needed || c.next_action || "")}</div></div></div>`).join("") : `<div class="empty">Nothing red, blocked or critical.</div>`}
     </div>
   </section>
   <section class="grid g2">
@@ -194,7 +200,7 @@ PAGES[""] = async () => {
     </div>
     <div class="card"><div class="card-title"><span class="grow">Recent decisions</span><a href="#/decisions" class="small">Decisions log →</a></div>
       ${d.recent_decisions.length ? d.recent_decisions.map((x) => `<div class="list-row" style="cursor:pointer" data-href="#/i/${x.initiative_id}?tab=decisions"><span class="mono small muted" style="width:70px">${fmtD(x.decision_date)}</span>${dchip(x.decision)}<div class="grow small"><b>${esc(x.initiative_name)}</b> ${x.stage_to !== x.stage_from ? `· ${esc(stageLabel(x.stage_from))} → ${esc(stageLabel(x.stage_to))}` : ""}</div></div>`).join("")
-        : `<div class="empty">No decisions recorded yet. Use <a href="#/workshop">Workshop mode</a> in your next portfolio review to record Stop / Hold / Continue / Pivot / Scale.</div>`}
+        : `<div class="empty">No decisions recorded yet. Use <a href="#/workshop">Workshop mode</a> in your next portfolio review to record Stop / Hold / Continue / Pivot / Scale / Close → BAU.</div>`}
     </div>
   </section>`;
 };
@@ -229,14 +235,14 @@ PAGES.register = async (r) => {
   f = sortRows(f, q.sort || "id", q.dir !== "desc");
   const fsel = (name, list, label) => `<select data-filter="${name}" aria-label="${label}"><option value="">${label}</option>${list.map((o) => { const [v, l] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(v)}" ${q[name] === v ? "selected" : ""}>${esc(l)}</option>`; }).join("")}</select>`;
   const special = { bad: "Red or Amber/Red", blocked: "Blocked or escalated", capture: "Needs capture", overdue: "Review overdue", owner: "Owner / sponsor to confirm" };
-  return `<section>${sec("Initiative register", "Every non-BAU initiative in one list. Click a row to open it; use the filters or search to narrow down.",
+  return `<section>${sec("Initiative register", "Every piece of work that needs time or resource outside business as usual. Click a row to open it; filter or search to narrow down.",
       `<div class="btn-row" style="margin-top:8px"><button class="btn accent" data-act="new-initiative">+ New initiative</button><a class="btn" href="/api/export/register.csv">Export CSV</a></div>`)}
     <div class="filters">
       <input type="search" data-filter="q" placeholder="Search name, owner, description…" value="${esc(q.q || "")}">
       ${fsel("stage", META.stages.map((s) => [s.key, s.label]), "All stages")}
       ${fsel("health", [["bad", "Red or Amber/Red"], ...META.healths], "All health")}
       ${fsel("priority", META.priorities, "All priorities")}
-      ${fsel("bucket", META.buckets, "All buckets")}
+      ${fsel("bucket", META.buckets, "All types")}
       ${fsel("status", META.statuses, "All statuses")}
       ${fsel("owner", owners, "All owners")}
       ${fsel("quadrant", [...META.quadrants, "Not scored"], "All quadrants")}
@@ -247,23 +253,24 @@ PAGES.register = async (r) => {
 };
 
 // ---- pipeline
-PAGES.pipeline = async () => {
-  const rows = (await refreshCache()).filter((c) => !["Stopped", "Closed / BAU"].includes(c.status));
+PAGES.pipeline = async (r) => {
+  const rows = (await refreshCache()).filter((c) => !["Stopped", "Closed / BAU"].includes(c.status)).filter(byType(r.q));
   const cols = META.stages.map((s) => ({ ...s, items: rows.filter((c) => c.stage === s.key) }));
   const other = rows.filter((c) => c.stage_index < 0);
   if (other.length) cols.push({ key: "other", label: "Other / not set", items: other });
   const sorted = (items) => sortRows(items, "priority", true);
-  return `<section>${sec("Stage pipeline", "Live initiatives by stage. Coloured edge = health. Click a card to open it.")}
-    <div class="board ${other.length ? "extra" : ""}">${cols.map((col, n) => `<div class="col"><div class="col-h"><span>${col.key === "other" ? "" : `<span class="mono muted">${n + 1}</span> `}${esc(col.label)}</span><span class="n">${col.items.length}</span></div>
-      ${sorted(col.items).map((c) => `<div class="icard ${c.health_class}" data-href="#/i/${c.id}"><div class="t">${esc(c.name)}</div>
-        <div class="r">${prio(c.priority)}${c.quadrant ? `<span class="hint">· ${esc(c.quadrant)}</span>` : ""}</div>
+  return `<section>${sec("Stage pipeline", "Live initiatives by stage. Coloured edge = health. Drag a card to another stage to move it (you'll be asked why), or click to open it.")}
+    <div class="filters" style="margin-bottom:10px">${typeFilter(r.q)}<span class="count">${rows.length} live</span></div>
+    <div class="board ${other.length ? "extra" : ""}">${cols.map((col, n) => `<div class="col" data-drop="${esc(col.key)}"><div class="col-h"><span>${col.key === "other" ? "" : `<span class="mono muted">${n + 1}</span> `}${esc(col.label)}</span><span class="n">${col.items.length}</span></div>
+      ${sorted(col.items).map((c) => `<div class="icard ${c.health_class}" data-href="#/i/${c.id}" draggable="true" data-drag="${c.id}"><div class="t">${esc(c.name)}</div>
+        <div class="r">${prio(c.priority)}${c.quadrant ? `<span class="hint">· ${esc(c.quadrant)}</span>` : ""}</div><div class="s">${esc(typeOf(c))}</div>
         <div class="s">${esc(c.owner || "Owner not set")}</div>
         ${c.movement ? `<div class="s">${esc(c.movement)} · ${fmtD(c.latest_update_date)}</div>` : ""}</div>`).join("") || `<div class="empty">—</div>`}</div>`).join("")}</div></section>`;
 };
 
 // ---- matrix
 PAGES.matrix = async (r) => {
-  const rows = (await refreshCache()).filter((c) => c.value != null && !["Stopped", "Closed / BAU"].includes(c.status));
+  const rows = (await refreshCache()).filter((c) => c.value != null && !["Stopped", "Closed / BAU"].includes(c.status)).filter(byType(r.q));
   const cuts = { ...META.cuts, ...(r.q.v ? { value_cut: +r.q.v } : {}), ...(r.q.c ? { complexity_cut: +r.q.c } : {}) };
   const quad = (c) => { const hv = c.value >= cuts.value_cut, hc = c.complexity >= cuts.complexity_cut; return hv && !hc ? "Quick Win" : hv && hc ? "Big Bet" : !hv && !hc ? "Filler / Enabler" : "Money Pit / Park"; };
   const W = 760, H = 560, P = 56;
@@ -296,6 +303,7 @@ PAGES.matrix = async (r) => {
         <text x="${px}" y="${py + 4}" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:10.5px">${num(c)}</text></g>`).join("")}
     </svg>
     <div class="grid" style="align-content:start">
+      <div class="card"><div class="card-title">Show</div>${typeFilter(r.q)}</div>
       <div class="card"><div class="card-title">Quadrant lines</div>
         <div class="slider"><span style="width:110px">High value ≥</span><input type="range" min="1" max="10" value="${cuts.value_cut}" data-cut="v"><b>${cuts.value_cut}</b></div>
         <div class="slider"><span style="width:110px">High complexity ≥</span><input type="range" min="1" max="10" value="${cuts.complexity_cut}" data-cut="c"><b>${cuts.complexity_cut}</b></div>
@@ -347,7 +355,7 @@ PAGES.i = async (r) => {
         ${c.related.length ? `<div style="margin-top:8px">${c.related.map((x) => x.id ? `<a class="tag" href="#/i/${x.id}" style="text-decoration:none;background:#FFF9C4">${esc(x.label)}</a>` : `<span class="tag">${esc(x.label)}</span>`).join("")}</div>` : ""}</div>
     </div><div class="grid" style="align-content:start">
       <div class="card"><div class="card-title">Flags</div>${flagList(c.flags)}</div>
-      ${stageGate(selStage >= 0 ? selStage : 0)}
+      ${stageGate(selStage >= 0 ? selStage : 0, c)}
       <div class="card"><div class="card-title">Key facts</div><dl class="kv">
         <dt>Bucket</dt><dd>${esc(c.bucket || "—")}</dd><dt>Business areas</dt><dd>${tags(c.business_areas) || "—"}</dd>
         <dt>Route</dt><dd>${tags(c.routes) || "—"}</dd><dt>Value types</dt><dd>${tags(c.value_types) || "—"}</dd>
@@ -391,8 +399,8 @@ PAGES.i = async (r) => {
       <div class="btn-row" style="margin:4px 0">${healthChip(c.health)} ${prio(c.priority)} <span class="chip outline">${esc(c.status || "No status")}</span> ${quadChip(c.quadrant)} ${c.bucket ? `<span class="hint">${esc(c.bucket)}</span>` : ""}</div>
       <div class="meta">Owner <b>${esc(c.owner || "not set")}</b> · Sponsor <b>${esc(c.sponsor || "not set")}</b></div></div>
     <div class="right"><div class="btn-row"><button class="btn accent" data-act="log-update" data-id="${c.id}">Log update</button><button class="btn primary" data-act="decide" data-id="${c.id}">Record decision</button></div>
-      <div class="btn-row"><button class="btn sm" data-act="score" data-id="${c.id}">${c.score ? "Re-score" : "Score"}</button><button class="btn sm" data-act="edit" data-id="${c.id}">Edit details</button><a class="btn sm" href="#/workshop?start=${c.id}">Workshop view</a></div></div></div></section>
-  <section>${stageStrip(c, selStage)}</section>
+      <div class="btn-row">${c.stage_index < META.stages.length - 1 ? `<button class="btn sm" data-act="move-stage" data-id="${c.id}" data-to="${esc(META.stages[c.stage_index + 1].key)}">Move to ${esc(META.stages[c.stage_index + 1].label)} →</button>` : ""}<button class="btn sm" data-act="score" data-id="${c.id}">${c.score ? "Re-score" : "Score"}</button><button class="btn sm" data-act="edit" data-id="${c.id}">Edit details</button><a class="btn sm" href="#/workshop?start=${c.id}">Workshop view</a></div></div></div></section>
+  <section>${stageStrip(c, selStage)}<div class="hint" style="margin-top:4px">Click a stage to see what it expects, and to move the initiative there.</div></section>
   <section><div class="tabs">${tabs.map(([k, l]) => `<button class="${k === tab ? "on" : ""}" data-act="tab" data-tab="${k}">${l}</button>`).join("")}</div>${body}</section>`;
 };
 
@@ -416,7 +424,8 @@ PAGES.workshop = async (r) => {
     due: ["Review due", (c) => c.flags.some((f) => f.kind === "overdue") || (c.next_review_date && c.next_review_date <= addDays(todayISO(), 14))],
     capture: ["Needs capture", (c) => c.movement === "Needs capture" || c.stage_index <= 0],
   };
-  const list = sortRows(all.filter(sets[set][1]), "priority", true);
+  const list = sortRows(all.filter(sets[set][1]).filter(byType(r.q)), "priority", true);
+  const tq = r.q.type ? `&type=${encodeURIComponent(r.q.type)}` : "";
   if (!list.length) return `<section>${sec("Workshop mode", "")}<div class="card empty">No initiatives in this set.</div></section>`;
   const id = r.q.start && list.some((c) => c.id === r.q.start) ? r.q.start : list[0].id;
   const pos = list.findIndex((c) => c.id === id);
@@ -424,15 +433,15 @@ PAGES.workshop = async (r) => {
   const prev = list[pos - 1], next = list[pos + 1];
   const s = c.score;
   return `<section class="ws-bar no-print">
-      <div class="tabs" style="margin:0;border:0">${Object.entries(sets).map(([k, [l]]) => `<button class="${k === set ? "on" : ""}" data-href="#/workshop?set=${k}">${l} (${all.filter(sets[k][1]).length})</button>`).join("")}</div>
-      <span class="grow" style="flex:1"></span>
-      <button class="btn" ${prev ? `data-href="#/workshop?set=${set}&start=${prev.id}"` : "disabled"}>← Previous</button>
+      <div class="tabs" style="margin:0;border:0">${Object.entries(sets).map(([k, [l]]) => `<button class="${k === set ? "on" : ""}" data-href="#/workshop?set=${k}${tq}">${l} (${all.filter(sets[k][1]).filter(byType(r.q)).length})</button>`).join("")}</div>
+      ${typeFilter(r.q)}<span class="grow" style="flex:1"></span>
+      <button class="btn" ${prev ? `data-href="#/workshop?set=${set}&start=${prev.id}${tq}"` : "disabled"}>← Previous</button>
       <span class="pos">${pos + 1} / ${list.length}</span>
-      <button class="btn" ${next ? `data-href="#/workshop?set=${set}&start=${next.id}"` : "disabled"}>Next →</button>
+      <button class="btn" ${next ? `data-href="#/workshop?set=${set}&start=${next.id}${tq}"` : "disabled"}>Next →</button>
     </section>
     <section class="ws">
       <div class="grid" style="align-content:start;gap:14px">
-        <div><div class="hint mono">${esc(c.id)} · ${esc(c.bucket || "")}</div><h1>${esc(c.name)}</h1>
+        <div><div class="hint mono">${esc(c.id)} · ${esc(typeOf(c))}${c.effort ? ` · ${esc(c.effort)}` : ""}</div><h1>${esc(c.name)}</h1>
           <div class="btn-row" style="margin:6px 0">${healthChip(c.health)} ${prio(c.priority)} <span class="chip outline">${esc(c.status || "")}</span> ${quadChip(c.quadrant)}${s ? `<span class="hint mono">V${s.value_total} · C${s.complexity_total}</span>` : ""}</div>
           <div class="lead">${esc(c.short_description || "")}</div>
           <div class="hint" style="margin-top:4px">Owner <b>${esc(c.owner || "not set")}</b> · Sponsor <b>${esc(c.sponsor || "not set")}</b></div></div>
@@ -446,16 +455,16 @@ PAGES.workshop = async (r) => {
       <div class="grid" style="align-content:start;gap:14px">
         <form class="card" id="ws-decide"><div class="card-title"><span class="grow">Record the decision</span>${c.decisions[0] ? `<span class="hint">last: ${dchip(c.decisions[0].decision)} ${fmtD(c.decisions[0].decision_date)}</span>` : ""}</div>
           ${decisionFields(c)}
-          <div class="btn-row" style="margin-top:10px"><button class="btn primary">Record${next ? " & next →" : ""}</button><button type="button" class="btn" data-act="log-update" data-id="${c.id}">Log update only</button>${next ? `<button type="button" class="btn" data-href="#/workshop?set=${set}&start=${next.id}">Skip</button>` : ""}</div>
+          <div class="btn-row" style="margin-top:10px"><button class="btn primary">Record${next ? " & next →" : ""}</button><button type="button" class="btn" data-act="log-update" data-id="${c.id}">Log update only</button>${next ? `<button type="button" class="btn" data-href="#/workshop?set=${set}&start=${next.id}${tq}">Skip</button>` : ""}</div>
         </form>
-        <div class="card ws-list"><div class="card-title"><span class="grow">In this session</span><span class="hint">${list.filter((x) => x.last_decision_date === todayISO()).length} of ${list.length} decided today</span></div>${list.map((x) => `<a href="#/workshop?set=${set}&start=${x.id}" class="${x.id === id ? "on" : ""}">${dot(x.health_class)}<span>${esc(x.name)}</span><span class="done">${x.last_decision_date === todayISO() ? `${dchip(x.last_decision)} ✓` : prio(x.priority)}</span></a>`).join("")}</div>
+        <div class="card ws-list"><div class="card-title"><span class="grow">In this session</span><span class="hint">${list.filter((x) => x.last_decision_date === todayISO()).length} of ${list.length} decided today</span></div>${list.map((x) => `<a href="#/workshop?set=${set}&start=${x.id}${tq}" class="${x.id === id ? "on" : ""}">${dot(x.health_class)}<span>${esc(x.name)}</span><span class="done">${x.last_decision_date === todayISO() ? `${dchip(x.last_decision)} ✓` : prio(x.priority)}</span></a>`).join("")}</div>
       </div>
     </section>`;
 };
 
-const DECISION_HELP = { Stop: "end it; free the resource", Hold: "pause; revisit later", Continue: "keep going at this stage", Pivot: "change scope or approach", Scale: "move forward / expand" };
+const DECISION_HELP = { Stop: "end it; free the resource", Hold: "pause; revisit later", Continue: "keep going at this stage", Pivot: "change scope or approach", Scale: "move forward / expand", Close: "done — hand over to business as usual" };
 function decisionFields(c) {
-  return `<div class="decide">${META.decisions.map((d) => `<label><input type="radio" name="decision" value="${d}" required><span>${d}<small>${DECISION_HELP[d]}</small></span></label>`).join("")}</div>
+  return `<div class="decide">${META.decisions.map((d) => `<label><input type="radio" name="decision" value="${d}" required><span>${esc(dlabel(d))}<small>${DECISION_HELP[d]}</small></span></label>`).join("")}</div>
     <div class="form" style="margin-top:10px">
       <div class="row">${field("Stage after decision", sel("stage_to", META.stages.map((s) => [s.key, s.label]), c.stage, false))}${field("Health", sel("health", META.healths, c.health || "Grey", false))}${field("Next review", inp("next_review_date", addDays(todayISO(), 28), "date"))}</div>
       ${field("Rationale", ta("rationale", "", 2, `placeholder="Why — what evidence or concern drove this?"`))}
@@ -505,7 +514,7 @@ PAGES.updates = async (r) => {
 // ---- decisions log
 PAGES.decisions = async () => {
   const ds = await GET("/api/decisions");
-  return `<section>${sec("Decisions log", "Every Stop / Hold / Continue / Pivot / Scale decision, newest first.")}
+  return `<section>${sec("Decisions log", "Every decision and stage move, newest first.")}
     <div class="card" style="padding:0">${ds.length ? `<table class="ops"><thead><tr><th>Date</th><th>Initiative</th><th>Decision</th><th>Stage</th><th>Rationale</th><th>Conditions</th><th>By</th></tr></thead><tbody>
       ${ds.map((x) => `<tr class="click" data-href="#/i/${x.initiative_id}?tab=decisions"><td class="mono small nowrap">${fmtD(x.decision_date)}</td><td class="small"><b>${esc(x.initiative_name)}</b></td><td>${dchip(x.decision)}</td><td class="small nowrap">${x.stage_to !== x.stage_from ? `${esc(stageLabel(x.stage_from))} → <b>${esc(stageLabel(x.stage_to))}</b>` : esc(stageLabel(x.stage_to))}</td><td class="small">${esc(x.rationale || "")}</td><td class="small">${esc(x.conditions || "")}</td><td class="small">${esc(x.decided_by || "")}</td></tr>`).join("")}</tbody></table>`
       : `<div class="empty">No decisions yet. Run <a href="#/workshop">Workshop mode</a> in the next portfolio review.</div>`}</div></section>`;
@@ -523,14 +532,41 @@ PAGES.pack = async (r) => {
   return `<section class="no-print"><div class="btn-row"><button class="btn primary" data-act="print">Print / save as PDF</button>
       <label class="small"><input type="checkbox" data-act="pack-all" ${mdOnly ? "" : "checked"}> Include initiatives not flagged for the MD update</label>
       <span class="hint">Working-only updates and working notes are never shown here.</span></div></section>
-  <section class="pack-head"><img src="/static/wsg-logo.svg" alt="WSG"><div><h1>Innovation Portfolio — leadership update</h1><div class="small" style="color:#D5D8DB">${fmtD(todayISO())} · ${rows.length} initiatives</div></div></section>
-  <section class="card"><div class="card-title"><span class="grow">Decisions since ${fmtD(since)}</span><span class="no-print small">from <input type="date" data-filter="since" value="${since}"></span></div>
-    ${recent.length ? `<table class="ops"><thead><tr><th>Date</th><th>Initiative</th><th>Decision</th><th>Stage</th><th>Rationale / conditions</th></tr></thead><tbody>${recent.map((x) => `<tr><td class="mono small nowrap">${fmtD(x.decision_date)}</td><td class="small"><b>${esc(x.initiative_name)}</b></td><td>${dchip(x.decision)}</td><td class="small nowrap">${x.stage_to !== x.stage_from ? `${esc(stageLabel(x.stage_from))} → <b>${esc(stageLabel(x.stage_to))}</b>` : esc(stageLabel(x.stage_to))}</td><td class="small">${esc(x.rationale || "")}${x.conditions ? `<div class="hint">${esc(x.conditions)}</div>` : ""}</td></tr>`).join("")}</tbody></table>` : `<div class="hint">No decisions recorded in this period.</div>`}</section>
+  <section class="pack-head"><img src="/static/wsg-logo.svg" alt="WSG"><div><h1>Initiative Portfolio — leadership update</h1><div class="small" style="color:#D5D8DB">${fmtD(todayISO())} · ${rows.length} initiatives</div></div></section>
+  <section class="card"><div class="card-title"><span class="grow">Decisions and stage moves since ${fmtD(since)}</span><span class="no-print small">from <input type="date" data-filter="since" value="${since}"></span></div>
+    ${recent.length ? `<table class="ops"><thead><tr><th>Date</th><th>Initiative</th><th>Decision</th><th>Stage</th><th>Rationale / conditions</th></tr></thead><tbody>${recent.map((x) => `<tr><td class="mono small nowrap">${fmtD(x.decision_date)}</td><td class="small"><b>${esc(x.initiative_name)}</b></td><td>${dchip(x.decision)}</td><td class="small nowrap">${x.stage_to !== x.stage_from ? `${esc(stageLabel(x.stage_from))} → <b>${esc(stageLabel(x.stage_to))}</b>` : esc(stageLabel(x.stage_to))}</td><td class="small">${esc(x.rationale || "")}${x.conditions ? `<div class="hint">${esc(x.conditions)}</div>` : ""}</td></tr>`).join("")}</tbody></table>` : `<div class="hint">No decisions or stage moves recorded in this period.</div>`}</section>
   <section class="grid g4">${ov.kpis.slice(0, 4).map((k) => `<div class="card tight kpi ${k.rag}"><div class="l">${esc(k.label)}</div><div class="v">${esc(k.value)}</div><div class="note">${esc(k.note)}</div></div>`).join("")}</section>
   <section class="card"><div class="card-title">By stage</div><div class="grid g5">${ov.by_stage.filter((s) => s.key !== "other").map((s) => `<div><div class="small"><b>${esc(s.label)}</b> <span class="mono muted">${s.items.length}</span></div><div class="hint">${s.items.map((c) => esc(c.name)).join(" · ") || "—"}</div></div>`).join("")}</div></section>
   ${rows.map((c) => { const u = latest[c.id]; return `<section class="pack-page"><div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><h2>${esc(c.name)}</h2>${healthChip(c.health)} ${prio(c.priority)} <span class="hint">${esc(stageLabel(c.stage))} · ${esc(c.owner || "")}</span></div>
       ${u ? `<div class="hint">${fmtD(u.update_date)} · ${esc(u.movement || "")}</div><div style="font-size:12.5px;margin:6px 0">${esc(u.summary)}</div>
       <dl class="kv"><dt>Decision needed</dt><dd>${esc(u.decision_needed || "—")}</dd><dt>Next action</dt><dd>${esc(u.next_action || "—")} ${u.next_action_owner ? `<span class="muted">— ${esc(u.next_action_owner)}</span>` : ""}</dd></dl>` : `<div class="hint">No update.</div>`}</section>`; }).join("")}`;
+};
+
+// ---- resource load
+PAGES.resources = async () => {
+  const d = await GET("/api/resources");
+  const max = Math.max(1, ...d.people.map((p) => p.weight));
+  const t = todayISO();
+  const effortCols = [...d.efforts, "Not set"];
+  return `<section>${sec("Resource load", "Who is carrying the non-BAU work. Weight adds up the effort size of every live initiative a person owns (Minimal 1 · Minor 2 · Material 3 · External 3 · Capital 4 · Unknown 2). Names come from the owner and action-owner fields.")}
+    <div class="card" style="padding:0"><table class="ops"><thead><tr><th>Person</th><th style="width:22%">Load</th><th>Owns</th><th class="num">Sponsors</th><th class="num">Open actions</th></tr></thead><tbody>
+    ${d.people.map((p) => `<tr><td class="nowrap"><b>${esc(p.name)}</b></td>
+      <td><div class="bar" style="height:12px"><div style="width:${(p.weight / max) * 100}%;background:${p.weight >= max * 0.75 ? "var(--red)" : p.weight >= max * 0.4 ? "var(--amber)" : "var(--wsg-black)"}"></div></div><div class="hint mono">${p.weight}</div></td>
+      <td>${p.owns.map((x) => `<a class="tag" href="#/i/${x.id}" style="text-decoration:none" title="${esc((x.effort || "effort not set") + " · " + (x.type || ""))}">${dot(x.health_class)} ${esc(x.name)}</a>`).join("") || `<span class="hint">—</span>`}</td>
+      <td class="num">${p.sponsors.length || ""}</td>
+      <td class="num">${p.actions.length ? `<a href="#/actions" title="${esc(p.actions.map((a) => a.name + ": " + a.action).join("\n"))}">${p.actions.length}</a>${p.overdue ? ` <span class="chip red">${p.overdue} overdue</span>` : ""}` : ""}</td></tr>`).join("")}
+    </tbody></table></div>
+    ${d.unowned.length ? `<div class="prompt">No named owner: ${d.unowned.map((x) => `<a href="#/i/${x.id}">${esc(x.name)}</a>`).join(" · ")}</div>` : ""}
+  </section>
+  <section class="grid g-2-1">
+    <div class="card"><div class="card-title">Effort by initiative type (live)</div><div class="tbl-wrap"><table class="ops"><thead><tr><th>Type</th>${effortCols.map((e) => `<th class="num">${esc(e)}</th>`).join("")}</tr></thead><tbody>
+      ${Object.entries(d.by_type).map(([k, r]) => `<tr class="click" data-href="#/register?bucket=${encodeURIComponent(k)}"><td class="small"><b>${esc(k)}</b></td>${effortCols.map((e) => `<td class="num">${r[e] || ""}</td>`).join("")}</tr>`).join("")}
+    </tbody></table></div></div>
+    <div class="card"><div class="card-title">Same person, different names?</div>
+      <div class="small" style="margin-bottom:6px">One line each, e.g. <span class="mono">CB = Carlie</span>. Initials and full names are then counted as one person.</div>
+      <textarea id="aliases" rows="6" style="width:100%;border:1px solid var(--line);border-radius:4px;padding:6px 8px;font-family:var(--font-mono);font-size:12px">${esc(d.aliases)}</textarea>
+      <div class="btn-row" style="margin-top:6px"><button class="btn primary sm" data-act="save-aliases">Save names</button></div></div>
+  </section>`;
 };
 
 // ---- import / export
@@ -559,13 +595,15 @@ async function readFiles(list) {
 }
 
 // ---- framework explainer
-PAGES.framework = async () => `<section>${sec("How the framework works", "A light stage-gate: capture without a business case, then ask for more evidence as initiatives ask for more resource, funding or rollout.")}
+PAGES.framework = async () => `<section>${sec("How the framework works", "Any work that needs time or resource outside business as usual — technology, safety, governance, commercial or operational. A light stage-gate: capture without a business case, then ask for more evidence as an initiative asks for more resource, funding or rollout.")}
   <div class="grid g5">${META.stages.map((s, n) => `<div class="card"><div class="card-title">Stage ${n + 1}</div><div class="display" style="font-weight:700;font-size:14px">${esc(s.label)}</div><div class="small" style="margin:6px 0">${esc(s.objective)}</div><div class="hint">Gate evidence:</div><ul style="margin:2px 0 0;padding-left:16px;font-size:11.5px">${s.gate.map((g) => `<li>${esc(g)}</li>`).join("")}</ul></div>`).join("")}</div></section>
   <section class="grid g2"><div class="card"><div class="card-title">Scoring</div><div class="small">Five value factors and five complexity factors, each <b>0</b> (none / low), <b>1</b> (some / moderate) or <b>2</b> (strong / high). Totals out of 10.</div>
     <div class="grid g2" style="margin-top:8px"><div><b class="small">Value</b>${Object.values(META.value_labels).map((l) => `<div class="small">· ${esc(l)}</div>`).join("")}</div><div><b class="small">Complexity</b>${Object.values(META.complexity_labels).map((l) => `<div class="small">· ${esc(l)}</div>`).join("")}</div></div>
     <div class="small" style="margin-top:8px">Quadrant is calculated: high value is ≥ ${META.cuts.value_cut}, high complexity is ≥ ${META.cuts.complexity_cut} (<a href="#/matrix">change</a>).</div></div>
     <div class="card"><div class="card-title">Decisions at a review</div>${META.decisions.map((d) => `<div class="list-row">${dchip(d)}<span class="small">${esc(DECISION_HELP[d])}</span></div>`).join("")}
-    <div class="hint" style="margin-top:6px">A decision is written to the decisions log and the updates log, and can move the stage and set the next review date.</div></div></section>`;
+    <div class="hint" style="margin-top:6px">A decision is written to the decisions log and the updates log, and can move the stage and set health and the next review date. <b>Close → BAU</b> marks the work finished and handed over to business as usual.</div></div></section>
+  <section class="grid g2"><div class="card"><div class="card-title">Initiative types</div>${META.types.map((t) => `<div class="small">· ${esc(t)}</div>`).join("")}<div class="hint" style="margin-top:6px">The register's "Portfolio Bucket". Filter by type on the register, pipeline, matrix and in workshop mode.</div></div>
+    <div class="card"><div class="card-title">Effort / resource ask</div>${META.efforts.map((t) => `<div class="small">· ${esc(t)}</div>`).join("")}<div class="hint" style="margin-top:6px">Drives the <a href="#/resources">Resource load</a> view. Filled in from the register's "Funding / resource ask" text; change it with Edit details.</div></div></section>`;
 
 // ------------------------------------------------------------------ forms
 function initiativeForm(c) {
@@ -575,13 +613,13 @@ function initiativeForm(c) {
     ${field("Short description", ta("short_description", f.short_description, 3, `placeholder="What is it, and why does it matter? One or two sentences is enough to start."`))}
     <div class="row">${field("Primary owner", inp("primary_owner", f.primary_owner, "text", `list="owners"`))}${field("Sponsor / exec lead", inp("sponsor", f.sponsor))}</div>
     <div class="row">${field("Stage", sel("stage", META.stages.map((s) => [s.key, s.label]), f.stage || "Idea/concept", false))}${field("Priority", sel("priority", META.priorities, f.priority || "Medium", false))}${field("Health", sel("health", META.healths, f.health || "Grey", false))}</div>
-    <div class="row">${field("Portfolio bucket", inp("portfolio_bucket", f.portfolio_bucket, "text", `list="buckets"`))}${field("Status", sel("portfolio_status", META.statuses, f.portfolio_status || "Proposed", false))}${field("Next review", inp("next_review_date", f.next_review_date, "date"))}</div>
+    <div class="row">${field("Initiative type", sel("portfolio_bucket", META.buckets, f.portfolio_bucket))}${field("Effort / resource ask", sel("effort", META.efforts, f.effort))}${field("Status", sel("portfolio_status", META.statuses, f.portfolio_status || "Proposed", false))}${field("Next review", inp("next_review_date", f.next_review_date, "date"))}</div>
     ${field("Business areas", checks("business_areas", META.business_areas, f.business_areas))}
     ${c ? `${field("Decision needed", ta("decision_needed", f.decision_needed, 2))}${field("Dependencies", ta("dependencies", f.dependencies, 2))}
-      <div class="row">${field("Evidence status", inp("evidence_status", f.evidence_status))}${field("Confidence", inp("confidence", f.confidence))}${field("Funding / resource ask", inp("funding_ask", f.funding_ask))}</div>
+      <div class="row">${field("Evidence status", inp("evidence_status", f.evidence_status))}${field("Confidence", inp("confidence", f.confidence))}${field("Funding / resource ask (notes)", inp("funding_ask", f.funding_ask))}</div>
       ${field("Related initiatives", inp("related_initiatives", (f.related_initiatives || []).join("; ")), "separate with ;")}${field("Comments", ta("comments", f.comments, 3))}`
       : `${field("Decision needed first", ta("decision_needed", "", 2, `placeholder="Optional — what would you want leadership to decide?"`))}`}
-    <datalist id="owners">${META.owners.map((o) => `<option value="${esc(o)}">`).join("")}</datalist><datalist id="buckets">${META.buckets.map((o) => `<option value="${esc(o)}">`).join("")}</datalist>`;
+    <datalist id="owners">${META.owners.map((o) => `<option value="${esc(o)}">`).join("")}</datalist>`;
 }
 
 function updateForm(c) {
@@ -619,6 +657,18 @@ function liveScore(form) {
   form.addEventListener("change", upd); upd();
 }
 
+function moveForm(c, toKey) {
+  const from = c.stage_index, to = META.stages.findIndex((s) => s.key === toKey);
+  const fwd = to > from;
+  const gate = META.stages[from]?.gate || [];
+  return `<div style="font-size:14px;margin-top:-4px"><b>${esc(stageLabel(c.stage))}</b> → <b>${esc(META.stages[to].label)}</b> ${fwd ? "" : `<span class="chip amber">moving back</span>`}</div>
+    ${fwd && gate.length ? field(`Evidence expected before leaving ${stageLabel(c.stage)}`, `<div class="checks" style="flex-direction:column;gap:4px">${gate.map((g) => `<label><input type="checkbox" name="gate[]" value="${esc(g)}">${esc(g)}</label>`).join("")}</div>`, "tick what's in place") : ""}
+    ${field(fwd ? "Why is it ready to move?" : "Why is it moving back?", ta("rationale", "", 3, `required placeholder="${fwd ? "The evidence or agreement behind the move." : "What changed?"}"`))}
+    <div class="row">${field("Agreed by", inp("agreed_by", "", "text", `placeholder="e.g. MD / monthly review"`))}${field("Next review", inp("next_review_date", addDays(todayISO(), 28), "date"))}</div>
+    <div class="row">${field("Next action", inp("next_action", ""))}${field("Action owner", inp("next_action_owner", c.next_action_owner || "", "text", `list="owners"`))}</div>
+    <datalist id="owners">${META.owners.map((o) => `<option value="${esc(o)}">`).join("")}</datalist>`;
+}
+
 async function openForm(kind, id, extra = {}) {
   const c = id ? await GET(`/api/initiatives/${id}`) : null;
   if (kind === "new") {
@@ -637,8 +687,16 @@ async function openForm(kind, id, extra = {}) {
     }, { wide: true, onOpen: liveScore });
   } else if (kind === "decide") {
     modal(`Record decision — ${c.name}`, decisionFields(c), "Record decision", (d) => {
-      if (!d.decision) throw new Error("Choose Stop, Hold, Continue, Pivot or Scale");
+      if (!d.decision) throw new Error("Choose a decision: Stop, Hold, Continue, Pivot, Scale or Close → BAU");
       return api("POST", `/api/initiatives/${id}/decisions`, nul(d));
+    }, { wide: true });
+  } else if (kind === "move") {
+    const to = META.stages.find((s) => s.key === extra.to);
+    modal(`Move ${c.name}`, moveForm(c, extra.to), `Move to ${to.label}`, (d) => {
+      const ticked = d.gate || [];
+      const missing = (META.stages[c.stage_index]?.gate || []).filter((g) => !ticked.includes(g));
+      const note = ticked.length ? ` Evidence in place: ${ticked.join("; ")}.` + (missing.length ? ` Not yet: ${missing.join("; ")}.` : "") : "";
+      return api("POST", `/api/initiatives/${id}/stage`, nul({ stage_to: extra.to, rationale: (d.rationale || "") + note, agreed_by: d.agreed_by, next_review_date: d.next_review_date, next_action: d.next_action, next_action_owner: d.next_action_owner }));
     }, { wide: true });
   } else if (kind === "align") {
     const list = extra.type === "Strategic Priority" ? META.strategic_priorities : META.value_pockets;
@@ -657,6 +715,8 @@ document.addEventListener("click", async (e) => {
     if (act === "edit") return openForm("edit", a.dataset.id);
     if (act === "score") return openForm("score", a.dataset.id);
     if (act === "decide") return openForm("decide", a.dataset.id);
+    if (act === "move-stage") return openForm("move", a.dataset.id, { to: a.dataset.to });
+    if (act === "save-aliases") { try { toast((await api("PUT", "/api/settings/aliases", { text: $("#aliases").value })).message); render(); } catch (err) { toast(err.message, true); } return; }
     if (act === "add-align") return openForm("align", a.dataset.id, { type: a.dataset.type });
     if (act === "rm-align") { try { toast((await api("DELETE", `/api/alignments/${encodeURIComponent(a.dataset.aid)}`)).message); render(); } catch (err) { toast(err.message, true); } return; }
     if (act === "close-action") { try { await api("PATCH", `/api/updates/${encodeURIComponent(a.dataset.uid)}`, { action_status: "Closed" }); toast("Action closed"); render(); } catch (err) { toast(err.message, true); } return; }
@@ -697,7 +757,7 @@ document.addEventListener("submit", async (e) => {
   if (e.target.id !== "ws-decide") return;
   e.preventDefault();
   const d = Object.fromEntries(new FormData(e.target).entries());
-  if (!d.decision) return toast("Choose Stop, Hold, Continue, Pivot or Scale", true);
+  if (!d.decision) return toast("Choose a decision: Stop, Hold, Continue, Pivot, Scale or Close → BAU", true);
   const r = parseRoute();
   const id = r.q.start || $(".ws-list a.on")?.getAttribute("href").split("start=")[1];
   try {
@@ -706,6 +766,18 @@ document.addEventListener("submit", async (e) => {
     const list = $$(".ws-list a"); const i = list.findIndex((x) => x.classList.contains("on"));
     if (list[i + 1]) location.hash = list[i + 1].getAttribute("href"); else render();
   } catch (err) { toast(err.message, true); }
+});
+document.addEventListener("dragstart", (e) => { const c = e.target.closest?.("[data-drag]"); if (c) { e.dataTransfer.setData("text/plain", c.dataset.drag); e.dataTransfer.effectAllowed = "move"; c.classList.add("dragging"); } });
+document.addEventListener("dragend", (e) => { e.target.classList?.remove("dragging"); $$(".col.over").forEach((x) => x.classList.remove("over")); });
+document.addEventListener("dragover", (e) => { const col = e.target.closest("[data-drop]"); if (col && col.dataset.drop !== "other") { e.preventDefault(); $$(".col.over").forEach((x) => x !== col && x.classList.remove("over")); col.classList.add("over"); } });
+document.addEventListener("drop", (e) => {
+  const col = e.target.closest("[data-drop]");
+  if (!col) return;
+  e.preventDefault(); col.classList.remove("over");
+  const id = e.dataTransfer.getData("text/plain"), c = (CACHE || []).find((x) => x.id === id);
+  if (!c || col.dataset.drop === "other") return;
+  if (c.stage === col.dataset.drop) return;
+  openForm("move", id, { to: col.dataset.drop });
 });
 document.addEventListener("dragover", (e) => { const d = e.target.closest("#drop"); if (d) { e.preventDefault(); d.classList.add("over"); } });
 document.addEventListener("dragleave", (e) => { const d = e.target.closest("#drop"); if (d) d.classList.remove("over"); });

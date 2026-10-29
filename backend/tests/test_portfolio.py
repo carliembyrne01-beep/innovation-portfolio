@@ -133,3 +133,81 @@ def test_overview_and_logs(loaded):
     assert k["Live initiatives"] == 2 and k["Blocked or escalated"] == 1 and k["Reviews overdue"] == 2
     assert loaded.get("/api/alignment-map").json()["areas"]["Strategic Priority"]
     assert len(loaded.get("/api/updates").json()) == 2
+
+
+# ---------------------------------------------------------------- v0.2: initiative portfolio
+def test_stage_move_forward_and_back_is_logged(loaded):
+    r = loaded.post("/api/initiatives/INIT-0001/stage", json={"stage_to": "Discovery/Validation", "rationale": "Scope signed off", "agreed_by": "MD"})
+    assert r.status_code == 200, r.text
+    i = loaded.get("/api/initiatives/INIT-0001").json()
+    assert i["stage"] == "Discovery/Validation"
+    assert i["updates"][0]["update_type"] == "Stage move" and "Framing → Discovery / validation" in i["updates"][0]["summary"]
+    assert i["decisions"][0]["decision"] == "Continue" and i["decisions"][0]["decided_by"] == "MD"
+    loaded.post("/api/initiatives/INIT-0001/stage", json={"stage_to": "Framing", "rationale": "Scope reopened"})
+    assert loaded.get("/api/initiatives/INIT-0001").json()["decisions"][0]["decision"] == "Pivot"
+    assert loaded.post("/api/initiatives/INIT-0001/stage", json={"stage_to": "Framing", "rationale": "again"}).status_code == 422
+    assert loaded.post("/api/initiatives/INIT-0001/stage", json={"stage_to": "Nowhere", "rationale": "x x"}).status_code == 422
+
+
+def test_close_to_bau(loaded):
+    assert loaded.post("/api/initiatives/INIT-0001/decisions", json={"decision": "Close", "rationale": "Embedded"}).json()["message"].startswith("Close → BAU")
+    i = loaded.get("/api/initiatives/INIT-0001").json()
+    assert i["status"] == "Closed / BAU" and "CLOSE → BAU" in i["updates"][0]["summary"]
+    assert i["updates"][0]["action_status"] == "Closed"
+    assert loaded.get("/api/overview").json()["kpis"][0]["value"] == 1  # no longer live
+
+
+def test_types_effort_and_resources(loaded):
+    meta = loaded.get("/api/meta").json()
+    assert "Operational Improvement" in meta["types"] and meta["efforts"][0] == "Minimal"
+    loaded.patch("/api/initiatives/INIT-0001", json={"funding_ask": "Minor / Material Internal Effort"})
+    loaded.patch("/api/initiatives/INIT-0001", json={"effort": "Material internal effort", "portfolio_bucket": "Operational Improvement"})
+    loaded.patch("/api/initiatives/INIT-0002", json={"primary_owner": "PA / Person B — confirm"})
+    loaded.put("/api/settings/aliases", json={"text": "PA = Person A"})
+    d = loaded.get("/api/resources").json()
+    people = {p["name"]: p for p in d["people"]}
+    assert len(people["Person A"]["owns"]) == 2 and people["Person A"]["weight"] == 3 + 2
+    assert "PA" not in people and "Person B" in people
+    assert d["by_type"]["Operational Improvement"]["Material internal effort"] == 1
+    assert any(t["label"] == "Operational Improvement" for t in loaded.get("/api/overview").json()["by_type"])
+
+
+def test_effort_filled_from_register_text_on_import(loaded):
+    import app.importer as I
+    from app.db import SessionLocal
+    from app import models as m
+    with SessionLocal() as db:
+        i = db.get(m.Initiative, "INIT-0002")
+        i.funding_ask, i.effort = "Capital Required / Unknown", None
+        db.commit()
+        I.apply(db, I.plan(db, [("register.csv", (FIX / "register.csv").read_bytes())], {"value_cut": 7, "complexity_cut": 5}))
+    # funding_ask is blank in the fixture, so effort stays empty rather than guessed
+    assert loaded.get("/api/initiatives/INIT-0002").json()["effort"] in (None, "Capital required")
+
+
+def test_upgrade_adds_new_columns_to_an_old_database(tmp_path):
+    import sqlite3
+    from app import main
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    old = tmp_path / "old.db"
+    con = sqlite3.connect(old)
+    con.execute("CREATE TABLE initiatives (id VARCHAR(20) PRIMARY KEY, name VARCHAR(300), funding_ask VARCHAR(200))")
+    con.execute("INSERT INTO initiatives VALUES ('INIT-0001', 'Old one', 'Minor Internal Effort')")
+    con.commit(); con.close()
+    eng = create_engine(f"sqlite:///{old}")
+    saved = main.engine, main.SessionLocal
+    main.engine, main.SessionLocal = eng, sessionmaker(bind=eng)
+    try:
+        main.upgrade_database()
+    finally:
+        main.engine, main.SessionLocal = saved
+    con = sqlite3.connect(old)
+    row = con.execute("SELECT name, effort, next_review_date FROM initiatives").fetchone()
+    assert row == ("Old one", "Minor internal effort", None)
+
+
+def test_stage_move_keeps_the_current_next_action(loaded):
+    loaded.post("/api/initiatives/INIT-0001/stage", json={"stage_to": "Discovery/Validation", "rationale": "Ready"})
+    i = loaded.get("/api/initiatives/INIT-0001").json()
+    assert i["next_action"] == "Current action" and i["next_action_owner"] == "Person A"

@@ -1,8 +1,17 @@
-# WSG Innovation Portfolio
+# WSG Initiative Portfolio
 
-One place to **keep the initiative portfolio up to date**, **see it at a glance**, and **run the monthly portfolio review**. It replaces the four MS Lists (Initiative Register, Scoring Component Model, Alignment / Value Pockets, Initiative Updates Log) and the Figma prototype.
+One place for **every piece of work that needs time or resource outside business as usual**: technology, safety, governance, commercial and operational improvement alike. Use it to **keep the portfolio up to date**, **see it at a glance**, **see who is carrying the load**, and **run the monthly portfolio review**. It replaces the four MS Lists (Initiative Register, Scoring Component Model, Alignment / Value Pockets, Initiative Updates Log) and the Figma prototype.
 
-Same simple setup as FLOW: Python only, no Docker, no admin rights, WSG branding. It is built as a standalone app so it can later sit behind the WSG portal's **Innovation Portfolio** button.
+Same simple setup as FLOW: Python only, no Docker, no admin rights, WSG branding. It is built as a standalone app so it can later sit behind a WSG portal button.
+
+## Updating to a new version
+
+Your data is in `backend/portfolio.db` and is never part of a download, so updating can't overwrite it.
+
+1. Close the app's black window.
+2. On GitHub: **Code → Download ZIP**, then unzip it.
+3. Copy everything from the new folder **over** your existing folder and say yes to replacing files. Your `backend/portfolio.db` and `backend/backups/` stay as they are.
+4. Start it again with `start_portfolio.bat`. Any new fields are added to your database automatically on start-up (a backup is taken first). There is no need to re-import.
 
 ## Run it
 
@@ -38,7 +47,10 @@ The check fixes or flags known problems in the Lists data:
 - **Log update** (on every initiative): what's changed, health, movement, decision needed, next action, owner, due date, next review date. This one form keeps the register current: health, next action and review dates are updated from it. The previous open update is marked superseded, so the history stays tidy.
   - Tick **Working only** for sensitive context. Working notes never appear in the leadership pack.
 - **Re-score**: click 0 / 1 / 2 for each of the 10 factors. The totals and quadrant update as you click. Old scores are kept as history.
-- **Edit details**: owner, sponsor, stage, priority, bucket, business areas, dependencies, related initiatives.
+- **Edit details**: owner, sponsor, stage, priority, initiative type, effort / resource ask, business areas, dependencies, related initiatives.
+- **Move along the stages**, in either of two ways. Both ask *why* (with the current stage's evidence checklist to tick), who agreed it and the next review date, and log the move in the updates and decisions history.
+  - On the **Stage pipeline**, drag a card to another stage.
+  - On an initiative, click a stage in the stage strip → **Move to this stage**, or use the **Move to … →** button at the top.
 - **Open actions** lists each initiative's current next action. Press **Done** when it's complete.
 - **Find an initiative** (top bar): type part of a name or ID.
 
@@ -55,38 +67,42 @@ The check fixes or flags known problems in the Lists data:
    - *Review due*: everything whose review date has passed.
    - *All live* or *Needs capture*.
 2. For each initiative you see the stage, the decision needed, the latest update, flags and what the current gate expects.
-3. Choose **Stop / Hold / Continue / Pivot / Scale** and set the stage, health and next review date. Add the rationale and the next action with an owner.
+3. Choose **Stop / Hold / Continue / Pivot / Scale / Close → BAU** and set the stage, health and next review date. Add the rationale and the next action with an owner. Use the **type** filter to review one kind of work at a time, e.g. only Governance-Operating Model items.
 4. Press **Record & next →**. The list on the right ticks off each one decided today.
 5. **Log update only** if there's no decision to make; **Skip** to come back later.
 
 **After the meeting**
-- **Leadership pack** opens with *Decisions since* (default: the last month). Print it as the meeting record.
+- **Leadership pack** opens with *Decisions and stage moves since* (default: the last month). Print it as the meeting record.
 - **Decisions log** and **Open actions** show what was agreed and who owns it.
 
 ## Views
 
 | Page | What it shows |
 |---|---|
-| Overview | Headline numbers, stage funnel, health, quadrants, what needs attention, latest updates and decisions |
+| Overview | Headline numbers, stage funnel, breakdown by type, health, quadrants, what needs attention, latest updates and decisions |
 | Register | Every initiative with filters (stage, health, priority, bucket, status, owner, quadrant), search and sortable columns |
-| Stage pipeline | Board by stage; coloured edge = health |
+| Stage pipeline | Board by stage; coloured edge = health. Drag a card to move it to another stage; filter by type |
 | Value × complexity | Matrix of active scores. Drag the sliders to move the quadrant lines, then save. The defaults (value ≥ 7, complexity ≥ 5) match 20 of the 21 quadrants recorded in Lists |
 | Strategy alignment | Initiatives × strategic priorities / value pockets (primary vs supporting), plus gaps |
+| Resource load | Each person's live initiatives (weighted by effort size), sponsorships and open / overdue actions, plus effort by type. Names come from the owner and action-owner fields. Use *Same person, different names?* to merge initials with names, e.g. `CB = Carlie` |
 | Initiative page | Stage strip with each gate's evidence, flags, key facts, scoring, alignment, update history, decisions, every register field |
 
 ## Power BI
 
-**Import & export → Export** downloads each list as CSV with the **same column names as the MS Lists**, so existing Power BI reports can point at these files instead. Multi-choice values are separated by `; `. The quadrant column is the calculated one.
+**Import & export → Export** downloads each list as CSV with the **same column names as the MS Lists**, so existing Power BI reports can point at these files instead. Multi-choice values are separated by `; `. The quadrant column is the calculated one. The register export has one extra column at the end, *Effort Level*.
 
 ## The framework in the app
 
-- **Stages:** Idea / concept → Framing → Discovery / validation → Pilot / trial → Active deployment. These are the five used in the register. Each stage has an objective and the evidence expected before moving on. These are a first draft; edit them in `backend/app/logic.py` (`STAGES`).
+- **Stages:** Idea / concept → Framing → Discovery / validation → Pilot / test → Deliver / embed. These are the five stages in the register (stored as *Idea/concept … Active Deployment*), worded to fit any kind of non-BAU work. Each stage has an objective and the evidence expected before moving on. These are a first draft; edit them in `backend/app/logic.py` (`STAGES`).
+- **Initiative type:** the register's *Portfolio Bucket*: Strategic Workstream, Product-Service, Platform-System, Operational Improvement, Governance-Operating Model, Commercial Partnership, Data-Automation.
+- **Effort / resource ask:** Minimal · Minor internal effort · Material internal effort · External / vendor cost · Capital required · Unknown. Filled in automatically from the register's *Funding / resource ask* text; change it with Edit details. It is exported as an extra *Effort Level* column.
 - **Scoring:** five value factors and five complexity factors, each 0–2 (totals out of 10).
 - **Quadrant:** calculated from the scores: Quick Win, Big Bet, Filler / Enabler or Money Pit / Park.
-- **Decisions:** Stop · Hold · Continue · Pivot · Scale.
+- **Decisions:** Stop · Hold · Continue · Pivot · Scale · Close → BAU.
   - A decision is written to the decisions log and the updates log.
   - It can move the stage and set health and the next review date.
-  - *Stop* sets the status to Stopped; *Hold* sets it to On Hold.
+  - *Stop* sets the status to Stopped; *Hold* sets it to On Hold; *Close → BAU* sets it to Closed / BAU (finished and handed over).
+  - Stop and Close also close the initiative's open action.
 
 ## For developers
 
@@ -104,6 +120,6 @@ Run the tests: `cd backend && .venv/bin/python -m pytest -q` (Windows: `.venv\Sc
 ## Next steps (not built yet)
 
 - Microsoft 365 sign-in, with named users in the update and decision history instead of free text.
-- Hosting it centrally (e.g. Azure App Service) so the team uses one shared copy, then the WSG portal with FLOW and Innovation Portfolio buttons.
-- The idea / opportunity intake form feeding straight into *Idea / concept*.
+- Hosting it centrally (e.g. Azure App Service) so the team uses one shared copy, then the WSG portal with FLOW and Initiative Portfolio buttons.
+- Intake triage: new ideas from the intake form land in *Idea / concept* with a triage outcome (BAU, watchlist, quick scope, active initiative, park).
 - Business-case fields (cost, benefit, ROI) on the scoring page are imported and shown but not yet editable in the app.

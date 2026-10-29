@@ -1,4 +1,4 @@
-"""WSG Innovation Portfolio — initiative register, scoring, stage-gate reviews and decisions.
+"""WSG Initiative Portfolio — every non-BAU initiative: register, scoring, stage-gate reviews, decisions and resource load.
 
 Start:   uvicorn app.main:app --reload     (from the backend folder)
 Open:    http://127.0.0.1:8001
@@ -24,7 +24,7 @@ from . import logic as L
 from . import models as m
 from .db import DB_PATH, Base, SessionLocal, engine, get_db
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 STATIC = Path(__file__).resolve().parent / "static"
 
 
@@ -51,10 +51,29 @@ async def lifespan(_app):
     # Real data: never drop anything. Back up on start, then create any missing tables.
     backup_database()
     Base.metadata.create_all(bind=engine)
+    upgrade_database()
     yield
 
 
-app = FastAPI(title="WSG Innovation Portfolio", version=VERSION, lifespan=lifespan)
+def upgrade_database():
+    """Add columns introduced by newer versions to an existing database, and fill them in. Never drops anything."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for t in Base.metadata.sorted_tables:
+            if not insp.has_table(t.name):
+                continue  # create_all makes whole new tables; this only adds columns
+            have = {c["name"] for c in insp.get_columns(t.name)}
+            for col in t.columns:
+                if col.name not in have:
+                    conn.execute(text(f"ALTER TABLE {t.name} ADD COLUMN {col.name} {col.type.compile(engine.dialect)}"))
+    with SessionLocal() as db:
+        for i in db.scalars(select(m.Initiative).where(m.Initiative.effort.is_(None), m.Initiative.funding_ask.is_not(None))).all():
+            i.effort = L.effort_from_text(i.funding_ask)
+        db.commit()
+
+
+app = FastAPI(title="WSG Initiative Portfolio", version=VERSION, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
@@ -133,7 +152,7 @@ def card(i: m.Initiative, s, u, prio, cuts, dec=None) -> dict:
     use_u = u is not None and (u.action_status or "Open") != "Superseded"
     return {
         "id": i.id, "name": i.name, "short_description": i.short_description, "owner": i.primary_owner, "sponsor": i.sponsor,
-        "bucket": i.portfolio_bucket, "business_areas": i.business_areas or [], "routes": i.primary_route or [],
+        "bucket": i.portfolio_bucket, "effort": i.effort, "business_areas": i.business_areas or [], "routes": i.primary_route or [],
         "value_types": i.value_types or [], "stage": i.stage, "stage_index": L.stage_index(i.stage),
         "status": i.portfolio_status, "priority": i.priority, "health": i.health, "health_class": L.health_class(i.health),
         "next_review_date": iso(i.next_review_date), "last_reviewed_date": iso(i.last_reviewed_date),
@@ -200,7 +219,8 @@ def meta(db: Session = Depends(get_db)):
         "statuses": distinct(L.STATUSES + [i.portfolio_status for i in inits]),
         "update_types": L.UPDATE_TYPES, "movements": L.MOVEMENTS, "quadrants": L.QUADRANTS,
         "value_labels": L.VALUE_LABELS, "complexity_labels": L.COMPLEXITY_LABELS, "cuts": get_cuts(db),
-        "buckets": distinct(i.portfolio_bucket for i in inits),
+        "buckets": distinct(L.TYPES + [i.portfolio_bucket for i in inits]), "types": L.TYPES,
+        "efforts": L.EFFORTS, "decision_labels": L.DECISION_LABELS, "aliases": get_aliases(db),
         "business_areas": distinct(a for i in inits for a in (i.business_areas or [])),
         "owners": distinct(i.primary_owner for i in inits),
         "strategic_priorities": distinct(a for t, a in areas if t == "Strategic Priority"),
@@ -226,6 +246,7 @@ def overview(db: Session = Depends(get_db)):
     other = [c for c in live if c["stage_index"] < 0]
     if other:
         by_stage.append({"key": "other", "label": "No / other stage", "items": other})
+    tc = Counter(c["bucket"] or "Not set" for c in live)
     hc = Counter(c["health"] or "Grey" for c in live)
     qc = Counter(c["quadrant"] or "Not scored" for c in live)
     mc = Counter(c["movement"] or "No update" for c in live)
@@ -257,6 +278,7 @@ def overview(db: Session = Depends(get_db)):
             {"label": "Decisions logged", "value": db.scalar(select(func.count()).select_from(m.Decision)), "note": f"{len(decisions_open)} initiatives waiting on a decision", "rag": "info", "link": "#/decisions"},
             {"label": "Need capture", "value": len(capture), "note": "not ready to score or route", "rag": "amber" if capture else "green", "link": "#/register?movement=capture"},
         ],
+        "by_type": [{"label": k, "n": v} for k, v in sorted(tc.items(), key=lambda kv: -kv[1])],
         "by_stage": by_stage, "health": [{"label": h, "n": hc.get(h, 0), "cls": L.health_class(h)} for h in L.HEALTHS],
         "quadrants": [{"label": q, "n": qc.get(q, 0)} for q in L.QUADRANTS + ["Not scored"]],
         "movement": [{"label": k, "n": v} for k, v in mc.most_common()],
@@ -319,6 +341,7 @@ class InitiativeIn(BaseModel):
     next_review_date: date | None = None
     evidence_status: str | None = None
     dependencies: str | None = None
+    effort: str | None = None
     related_initiatives: list[str] = []
 
 
@@ -335,7 +358,7 @@ def create_initiative(x: InitiativeIn, db: Session = Depends(get_db)):
 EDITABLE = {"name", "short_description", "primary_owner", "sponsor", "portfolio_bucket", "business_areas", "value_types", "primary_route",
             "stage", "portfolio_status", "priority", "health", "decision_needed", "next_action", "next_action_owner",
             "next_review_date", "last_reviewed_date", "evidence_status", "dependencies", "comments", "confidence",
-            "integrated_platform_link", "commercial_decision_required", "client_impact", "funding_ask", "related_initiatives"}
+            "integrated_platform_link", "commercial_decision_required", "client_impact", "funding_ask", "effort", "related_initiatives"}
 
 
 @app.patch("/api/initiatives/{iid}")
@@ -377,6 +400,12 @@ def add_update(iid: str, x: UpdateIn, db: Session = Depends(get_db)):
     i = get_init(db, iid)
     d = x.update_date or today()
     uid = next_seq_id(db, m.Update, f"UPD-{iid}-{d.isoformat()}")
+    if not x.next_action:
+        # No new action given: carry the current open one forward so it isn't lost when this update supersedes it.
+        prev = db.scalars(select(m.Update).where(m.Update.initiative_id == iid, m.Update.action_status == "Open", m.Update.next_action.is_not(None))
+                          .order_by(m.Update.update_date.desc(), m.Update.created_at.desc())).first()
+        if prev:
+            x.next_action, x.next_action_owner, x.due_date = prev.next_action, x.next_action_owner or prev.next_action_owner, x.due_date or prev.due_date
     if x.supersede_previous:
         for old in db.scalars(select(m.Update).where(m.Update.initiative_id == iid, m.Update.action_status == "Open")).all():
             old.action_status = "Superseded"
@@ -464,8 +493,13 @@ class DecisionIn(BaseModel):
     next_action_owner: str | None = None
 
 
+def stage_label(k):
+    n = L.stage_index(k)
+    return L.STAGES[n]["label"] if n >= 0 else (k or "no stage")
+
+
 @app.post("/api/initiatives/{iid}/decisions")
-def add_decision(iid: str, x: DecisionIn, db: Session = Depends(get_db)):
+def add_decision(iid: str, x: DecisionIn, db: Session = Depends(get_db), update_type: str = "Decision"):
     i = get_init(db, iid)
     if x.decision not in L.DECISIONS:
         raise HTTPException(422, "Decision must be one of " + ", ".join(L.DECISIONS))
@@ -479,18 +513,50 @@ def add_decision(iid: str, x: DecisionIn, db: Session = Depends(get_db)):
         i.portfolio_status = "Stopped"
     elif x.decision == "Hold":
         i.portfolio_status = "On Hold"
+    elif x.decision == "Close":
+        i.portfolio_status = "Closed / BAU"
     elif i.portfolio_status in ("On Hold", "Stopped", "Proposed", "Proposed/In Review"):
         i.portfolio_status = "Active"
     if x.next_review_date:
         i.next_review_date = x.next_review_date
     # Log it in the update history too, so the log stays the one complete record.
-    moved = f" Stage: {L.STAGES[L.stage_index(stage_from)]['label'] if L.stage_index(stage_from) >= 0 else stage_from} → {i.stage}." if i.stage != stage_from else ""
-    summary = f"Decision: {x.decision.upper()}.{moved} {x.rationale or ''}".strip()
-    add_update(iid, UpdateIn(update_type="Decision", update_date=d, summary=summary, decision_needed="", health=x.health,
-                             movement="Progressed" if x.decision in ("Continue", "Scale") else "Changed Scope" if x.decision == "Pivot" else "No change",
+    moved = f"Stage: {stage_label(stage_from)} → {stage_label(i.stage)}." if i.stage != stage_from else ""
+    label = L.DECISION_LABELS.get(x.decision, x.decision).upper()
+    summary = (f"{moved} {x.rationale or ''}" if update_type == L.STAGE_MOVE else f"Decision: {label}. {moved} {x.rationale or ''}").strip()
+    logged = add_update(iid, UpdateIn(update_type=update_type, update_date=d, summary=summary, decision_needed="", health=x.health,
+                             movement="Progressed" if x.decision in ("Continue", "Scale", "Close") else "Changed Scope" if x.decision == "Pivot" else "No change",
                              next_action=x.next_action or x.conditions, next_action_owner=x.next_action_owner,
                              next_review_date=x.next_review_date), db)
-    return {"message": f"{x.decision} recorded for {i.name}"}
+    if x.decision in ("Stop", "Close"):
+        # Finished work has no open action left.
+        db.get(m.Update, logged["id"]).action_status = "Closed"
+        db.commit()
+    if update_type == L.STAGE_MOVE:
+        return {"message": f"{i.name} moved to {stage_label(i.stage)}"}
+    return {"message": f"{L.DECISION_LABELS.get(x.decision, x.decision)} recorded for {i.name}"}
+
+
+class StageMoveIn(BaseModel):
+    stage_to: str
+    rationale: str = Field(min_length=3)
+    agreed_by: str | None = None
+    next_review_date: date | None = None
+    next_action: str | None = None
+    next_action_owner: str | None = None
+
+
+@app.post("/api/initiatives/{iid}/stage")
+def move_stage(iid: str, x: StageMoveIn, db: Session = Depends(get_db)):
+    """Move an initiative to another stage (passing a gate, or stepping back). Logged as a decision and an update."""
+    i = get_init(db, iid)
+    if x.stage_to not in L.STAGE_KEYS:
+        raise HTTPException(422, "Unknown stage")
+    if x.stage_to == i.stage:
+        raise HTTPException(422, f"{i.name} is already in {stage_label(i.stage)}")
+    forward = L.stage_index(x.stage_to) > L.stage_index(i.stage)
+    return add_decision(iid, DecisionIn(decision="Continue" if forward else "Pivot", stage_to=x.stage_to, rationale=x.rationale,
+                                        decided_by=x.agreed_by, next_review_date=x.next_review_date, next_action=x.next_action,
+                                        next_action_owner=x.next_action_owner, forum="Stage move"), db, update_type=L.STAGE_MOVE)
 
 
 class AlignmentIn(BaseModel):
@@ -553,6 +619,64 @@ def alignment_map(db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------- settings
+def get_aliases(db) -> dict:
+    """Name aliases, e.g. "CB = Carlie", so one person isn't counted twice in the resource view."""
+    s = db.get(m.Setting, "aliases")
+    out = {}
+    for line in (s.value if s else "").splitlines():
+        if "=" in line:
+            short, full = line.split("=", 1)
+            if short.strip() and full.strip():
+                out[short.strip().lower()] = full.strip()
+    return out
+
+
+class AliasesIn(BaseModel):
+    text: str = Field(max_length=4000)
+
+
+@app.put("/api/settings/aliases")
+def set_aliases(x: AliasesIn, db: Session = Depends(get_db)):
+    s = db.get(m.Setting, "aliases") or m.Setting(key="aliases", value="")
+    s.value = x.text.strip()
+    db.add(s)
+    db.commit()
+    return {"message": f"{len(get_aliases(db))} name aliases saved"}
+
+
+@app.get("/api/resources")
+def resources(db: Session = Depends(get_db)):
+    """Who is carrying what: live initiatives each person owns or sponsors, their open actions, and effort weight."""
+    aliases = get_aliases(db)
+    cards = [c for c in all_cards(db) if c["status"] not in ("Stopped", "Closed / BAU")]
+    people: dict = {}
+
+    def person(n):
+        return people.setdefault(n, {"name": n, "owns": [], "sponsors": [], "actions": [], "weight": 0})
+    for c in cards:
+        brief = {"id": c["id"], "name": c["name"], "effort": c["effort"], "priority": c["priority"], "health_class": c["health_class"],
+                 "stage": c["stage"], "type": c["bucket"]}
+        for n in L.split_people(c["owner"], aliases):
+            p = person(n)
+            p["owns"].append(brief)
+            p["weight"] += L.EFFORT_WEIGHT.get(c["effort"] or "Unknown", 2)
+        for n in L.split_people(c["sponsor"], aliases):
+            person(n)["sponsors"].append(brief)
+        if c["next_action"]:
+            for n in L.split_people(c["next_action_owner"], aliases):
+                person(n)["actions"].append({"id": c["id"], "name": c["name"], "action": c["next_action"], "due": c["next_action_due"]})
+    t = today().isoformat()
+    for p in people.values():
+        p["overdue"] = sum(1 for a in p["actions"] if a["due"] and a["due"] < t)
+    rows = sorted(people.values(), key=lambda p: (-p["weight"], -len(p["actions"]), p["name"].lower()))
+    by_type = {}
+    for c in cards:
+        r = by_type.setdefault(c["bucket"] or "Not set", {e: 0 for e in L.EFFORTS + ["Not set"]})
+        r[c["effort"] or "Not set"] += 1
+    return {"people": rows, "by_type": by_type, "efforts": L.EFFORTS, "aliases": "\n".join(f"{k.upper() if len(k) <= 3 else k} = {v}" for k, v in aliases.items()),
+            "unowned": [{"id": c["id"], "name": c["name"]} for c in cards if not L.split_people(c["owner"], aliases)]}
+
+
 class CutsIn(BaseModel):
     value_cut: int = Field(ge=1, le=10)
     complexity_cut: int = Field(ge=1, le=10)

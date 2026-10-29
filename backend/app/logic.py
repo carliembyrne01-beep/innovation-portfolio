@@ -1,34 +1,90 @@
 """Framework rules: stages, health, quadrants and data-quality flags."""
 from datetime import date, timedelta
 
-# Stages as used in the Initiative Register, in order. Objectives and gate evidence are a
+# Stages as used in the Initiative Register, in order (keys match the register; labels are
+# worded to fit any non-BAU work, not only technology). Objectives and gate evidence are a
 # first draft from the framework notes ("intake should not require a business case; larger
 # initiatives need stronger framing before resource, funding, scale or rollout decisions").
 STAGES = [
     {"key": "Idea/concept", "label": "Idea / concept",
-     "objective": "Capture the signal: what problem or opportunity, who raised it, why it matters.",
-     "gate": ["Problem or opportunity in one or two sentences", "Named owner (even if provisional)", "Portfolio bucket and route chosen"]},
+     "objective": "Capture the need or opportunity: what it is, who raised it, why it can't be handled as business as usual.",
+     "gate": ["Need or opportunity in one or two sentences", "Named owner (even if provisional)", "Initiative type chosen", "Rough size of the time or resource needed"]},
     {"key": "Framing", "label": "Framing",
-     "objective": "Shape it enough to decide whether to spend effort finding out more.",
-     "gate": ["Scope and what is out of scope", "Owner and sponsor confirmed", "First component score", "Dependencies and related initiatives named", "Decision needed to move on"]},
+     "objective": "Shape it enough to decide whether it deserves time and resource to explore further.",
+     "gate": ["Scope and what is out of scope", "Owner and sponsor confirmed", "First value / complexity score", "Dependencies and related initiatives named", "Decision needed to move on"]},
     {"key": "Discovery/Validation", "label": "Discovery / validation",
-     "objective": "Test the riskiest assumptions with evidence before committing resource.",
-     "gate": ["Evidence against the value case", "Technical / commercial / IP risks assessed", "Cost and resource estimate", "Success criteria for a pilot"]},
-    {"key": "Pilot/Trial", "label": "Pilot / trial",
-     "objective": "Prove it works in the real operating environment, at small scale.",
-     "gate": ["Trial evidence against success criteria", "Operating and support model", "Readiness controls (RACI, safety, training)", "Go / no-go for deployment"]},
-    {"key": "Active Deployment", "label": "Active deployment",
-     "objective": "Roll out, embed and, where relevant, commercialise.",
-     "gate": ["Adoption and benefits tracked", "Old tools / processes retired", "Ownership moved to business-as-usual"]},
+     "objective": "Test the riskiest assumptions with evidence before committing real resource.",
+     "gate": ["Evidence the problem and value are real", "Key risks assessed (technical, commercial, safety, people)", "Effort, cost and who is needed", "Success criteria for a pilot or test"]},
+    {"key": "Pilot/Trial", "label": "Pilot / test",
+     "objective": "Prove it works in real conditions at small scale: a trial, a first site, a first review cycle.",
+     "gate": ["Results against the success criteria", "How it will run and who supports it", "Readiness controls (RACI, safety, training)", "Go / no-go to deliver in full"]},
+    {"key": "Active Deployment", "label": "Deliver / embed",
+     "objective": "Deliver it in full, embed it in how WSG works and, where relevant, commercialise it.",
+     "gate": ["Adoption and benefits tracked", "Old ways of working retired", "Ownership handed to business as usual (then Close → BAU)"]},
 ]
 STAGE_KEYS = [s["key"] for s in STAGES]
 _STAGE_ALIASES = {k.lower().replace(" ", ""): k for k in STAGE_KEYS}
 
-DECISIONS = ["Stop", "Hold", "Continue", "Pivot", "Scale"]
+DECISIONS = ["Stop", "Hold", "Continue", "Pivot", "Scale", "Close"]
+DECISION_LABELS = {"Close": "Close → BAU"}
+STAGE_MOVE = "Stage move"
+
+# Initiative types: the register's "Portfolio Bucket" values.
+TYPES = ["Strategic Workstream", "Product-Service", "Platform-System", "Operational Improvement",
+         "Governance-Operating Model", "Commercial Partnership", "Data-Automation"]
+
+# Effort / resource ask on a short scale, smallest first, with a weight for the resource view.
+EFFORTS = ["Minimal", "Minor internal effort", "Material internal effort", "External / vendor cost", "Capital required", "Unknown"]
+EFFORT_WEIGHT = {"Minimal": 1, "Minor internal effort": 2, "Material internal effort": 3, "External / vendor cost": 3, "Capital required": 4, "Unknown": 2}
+
+
+def effort_from_text(text: str | None) -> str | None:
+    """Map the register's free-text "Funding/Resource Ask" to the scale; the largest ask mentioned wins."""
+    if not text or not text.strip():
+        return None
+    s = text.lower()
+    for key, words in (("Capital required", ("capital",)), ("External / vendor cost", ("vendor", "external")),
+                       ("Material internal effort", ("material",)), ("Minor internal effort", ("minor",)),
+                       ("Minimal", ("minimal", "none", "nil")), ("Unknown", ("unknown", "tbc"))):
+        if any(w in s for w in words):
+            return key
+    return "Unknown"
+
+
+def split_people(text: str | None, aliases: dict | None = None) -> list[str]:
+    """Turn owner text like "Carlie / Talha — confirm", "CB MM JT" or "Carlie/TQ" into names."""
+    import re
+    if not text:
+        return []
+    s = re.sub(r"(?i)\b(owner\s+)?(to\s+)?(be\s+)?confirm(ed)?\b|\btbc\b|\?", " ", text)
+    s = s.replace("(", "/").replace(")", "/")
+    s = s.replace("—", "/").replace(" - ", "/")
+    parts = re.split(r"/|,|&|;|\band\b|\bwith\b", s)
+    out = []
+    for p in parts:
+        p = p.strip(" .-")
+        # "Technical owner", "Commercial owner" etc. are placeholders, not people.
+        if not p or re.search(r"(?i)\bowner$|^owner\b|\blead$|\bsponsor$", p):
+            continue
+        toks = p.split()
+        # "CB MM JT" = three people's initials
+        if len(toks) > 1 and all(re.fullmatch(r"[A-Z]{2,3}", t) for t in toks):
+            out.extend(toks)
+        else:
+            out.append(p)
+    names, seen = [], set()
+    for n in out:
+        n = n[:1].upper() + n[1:] if n.islower() else n
+        n = (aliases or {}).get(n.lower(), n)
+        if n.lower() not in seen and len(n) > 1:
+            seen.add(n.lower())
+            names.append(n)
+    return names
+
 PRIORITIES = ["Critical", "High", "Medium", "Low"]
 HEALTHS = ["Green", "Green/Amber", "Amber", "Amber/Red", "Red", "Grey"]
 STATUSES = ["Proposed", "Proposed/In Review", "Active", "Active/In Review", "Watchlist", "On Hold", "Stopped", "Closed / BAU"]
-UPDATE_TYPES = ["Owner Update", "Review", "Meeting", "Refresh", "Baseline Snapshot", "Capture Required", "Decision"]
+UPDATE_TYPES = ["Owner Update", "Review", "Meeting", "Refresh", "Baseline Snapshot", "Capture Required", "Decision", "Stage move"]
 MOVEMENTS = ["Progressed", "No change", "Blocked", "Escalated", "Changed Scope", "Needs capture"]
 QUADRANTS = ["Quick Win", "Big Bet", "Filler / Enabler", "Money Pit / Park"]
 
