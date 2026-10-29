@@ -32,6 +32,7 @@ Let several people score an initiative, instead of one person entering the score
 ## Next (not started)
 
 - **Central hosting:** one shared copy for the team instead of one per laptop (e.g. Azure App Service, with the database moved to PostgreSQL). Needs IT / security review.
+- **Snowflake reporting (if WSG uses Snowflake):** a nightly load of the register, scores, updates, decisions and links into a Snowflake schema, so Power BI reads the portfolio alongside WSG's other data instead of CSV files. The app keeps its own database. Raised 29 Oct 2026; IT to confirm.
 - **Microsoft 365 sign-in:** named users in the update and decision history, instead of free text.
 - **WSG portal:** a landing page with FLOW and Initiative Portfolio buttons.
 - **Intake triage:** ideas from the intake form land in *Idea / concept* with a triage outcome (BAU, watchlist, quick scope, active initiative, park).
