@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Innovation Portfolio · WSG</title>
+  <link rel="icon" href="/static/wsg-logo.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#231F20">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/portfolio.css">
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div class="top-row">
+      <button class="burger" id="burger" aria-label="Toggle navigation">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="3" width="14" height="1.5" rx=".75"/><rect x="1" y="7.25" width="14" height="1.5" rx=".75"/><rect x="1" y="11.5" width="14" height="1.5" rx=".75"/></svg>
+      </button>
+      <div class="wordmark">
+        <img class="logo" src="/static/wsg-logo.svg" alt="WSG — Wireline Services Group">
+        <span class="divider"></span>
+        <div>
+          <div class="name"><span class="flow">INNOVATION</span> <span class="tagline" style="font-weight:500;color:#D5D8DB">· Portfolio</span></div>
+          <div class="sub" id="today">loading…</div>
+        </div>
+      </div>
+      <div class="top-search"><input id="jump" type="search" placeholder="Find an initiative…" autocomplete="off" aria-label="Find an initiative"><div id="jump-list"></div></div>
+      <button class="btn accent top-add" data-act="new-initiative">+ New initiative</button>
+    </div>
+  </header>
+  <div class="body">
+    <aside class="nav" id="nav"></aside>
+    <main id="main"><div class="page"><div class="empty">Loading…</div></div></main>
+  </div>
+</div>
+<div id="toast"></div>
+<div id="modal-root"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

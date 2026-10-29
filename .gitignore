@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# Real portfolio data never goes into git: it lives in the local database and its backups.
+*.db
+backend/backups/
+data/
+*.zip

@@ -1,0 +1,4 @@
+﻿"Update ID","Initiative ID","Initiative Name","Update Date","Update Type","Update Summary","Movement Since Last Update","Current Health","Decision Needed","Next Action","Next Action Owner","Due Date","Next Action Status","Include in Align","Confidential/Working Only","Working Notes","Include in MD Update"
+"UPD-INIT-0001-2026-06-15-01","INIT-0001","","6/15/2026","Review","Older update.","Progressed","Amber","","Old action","","","Open","","","","True"
+"UPD-INIT-0001-2026-08-13-01","INIT-0001","","8/13/2026","Refresh","Latest update.","Blocked","Amber/Red","","Current action","Person A","","Open","","True","Sensitive.","True"
+"","","","","","","","","","","","","","True","True","","True"

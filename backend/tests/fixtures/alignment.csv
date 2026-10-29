@@ -1,0 +1,5 @@
+﻿"Alignment ID","Initiative ID","Initiative Name","Alignment Type","Alignment Area","Alignment Role","Portfolio Bucket","Initiative Priority","Current Stage","Portfolio Status","Evidence Basis","Notes","Active","Review Required"
+"ALIGN-INIT-0001-SP-01","INIT-0001","","[""Strategic Priority""]","[""Reliable Operating Platform""]","[""Primary""]","","","","","","","True",""
+"ALIGN-INIT-0001-VP-01","INIT-0001","","[""Value Pocket""]","[""Reduced Rework""]","[""Primary""]","","","","","","","True",""
+"ALIGN-INIT-0001-VP-02","INIT-0001","","[""Value Pocket""]","[""Reduced Rework""]","[""Supporting""]","","","","","","","True",""
+"ALIGN-INIT-0002-SP-01","INT-0002","","[""Strategic Priority""]","[""Key Technology Systems""]","[""Supporting""]","","","","","","","True",""
